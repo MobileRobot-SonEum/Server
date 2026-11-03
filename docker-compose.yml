@@ -1,0 +1,17 @@
+services:
+  translator:
+    build: .
+    image: ksl-translator:latest
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      # 이미지를 다시 빌드하지 않고 설정·예시를 바꾸고 싶을 때
+      - ./config.yaml:/app/config.yaml:ro
+      - ./data:/app/data:ro
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

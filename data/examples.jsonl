@@ -1,0 +1,25 @@
+{"_comment": "직접 작성한 임시 예시 (AIHub KSL-Guide 원본 아님). 창구 시나리오용으로 개발자가 만든 gloss-문장 쌍이며, AIHub 데이터 변환 후 교체할 것. 형식: glosses, sentence, type(declarative|interrogative), scenario(선택), source"}
+{"glosses": ["나", "감기", "진료", "원하다"], "sentence": "감기 때문에 진료를 받고 싶어요.", "type": "declarative", "scenario": "hospital", "source": "manual"}
+{"glosses": ["신분증", "없다", "휴대폰", "되다"], "sentence": "신분증이 없는데 휴대폰으로 해도 되나요?", "type": "interrogative", "scenario": "hospital", "source": "manual"}
+{"glosses": ["처음", "오다"], "sentence": "처음 왔어요.", "type": "declarative", "scenario": "hospital", "source": "manual"}
+{"glosses": ["예약", "있다"], "sentence": "예약했어요.", "type": "declarative", "scenario": "hospital", "source": "manual"}
+{"glosses": ["예약", "없다", "진료", "되다"], "sentence": "예약을 안 했는데 진료받을 수 있나요?", "type": "interrogative", "scenario": "hospital", "source": "manual"}
+{"glosses": ["머리", "아프다", "열", "있다"], "sentence": "머리가 아프고 열이 있어요.", "type": "declarative", "scenario": "hospital", "source": "manual"}
+{"glosses": ["기다리다", "얼마"], "sentence": "얼마나 기다려야 하나요?", "type": "interrogative", "scenario": "hospital", "source": "manual"}
+{"glosses": ["약", "처방전", "필요하다"], "sentence": "처방전이 필요해요.", "type": "declarative", "scenario": "hospital", "source": "manual"}
+{"glosses": ["주민등록등본", "떼다", "원하다"], "sentence": "주민등록등본을 떼고 싶어요.", "type": "declarative", "scenario": "civil_office", "source": "manual"}
+{"glosses": ["이사", "전입신고", "하다", "원하다"], "sentence": "이사해서 전입신고를 하고 싶어요.", "type": "declarative", "scenario": "civil_office", "source": "manual"}
+{"glosses": ["신분증", "잃어버리다", "다시", "만들다"], "sentence": "신분증을 잃어버려서 다시 만들고 싶어요.", "type": "declarative", "scenario": "civil_office", "source": "manual"}
+{"glosses": ["서류", "어디", "내다"], "sentence": "서류는 어디에 내요?", "type": "interrogative", "scenario": "civil_office", "source": "manual"}
+{"glosses": ["수수료", "얼마"], "sentence": "수수료가 얼마예요?", "type": "interrogative", "scenario": "civil_office", "source": "manual"}
+{"glosses": ["도장", "없다", "서명", "되다"], "sentence": "도장이 없는데 서명으로 해도 되나요?", "type": "interrogative", "scenario": "civil_office", "source": "manual"}
+{"glosses": ["번호표", "뽑다", "어디"], "sentence": "번호표는 어디서 뽑아요?", "type": "interrogative", "scenario": "civil_office", "source": "manual"}
+{"glosses": ["재학증명서", "발급", "원하다"], "sentence": "재학증명서를 발급받고 싶어요.", "type": "declarative", "scenario": "university", "source": "manual"}
+{"glosses": ["휴학", "신청", "방법", "모르다"], "sentence": "휴학 신청 방법을 모르겠어요.", "type": "declarative", "scenario": "university", "source": "manual"}
+{"glosses": ["학생증", "없다", "도서관", "들어가다", "되다"], "sentence": "학생증이 없는데 도서관에 들어가도 되나요?", "type": "interrogative", "scenario": "university", "source": "manual"}
+{"glosses": ["장학금", "신청", "언제", "끝나다"], "sentence": "장학금 신청은 언제 끝나요?", "type": "interrogative", "scenario": "university", "source": "manual"}
+{"glosses": ["수업", "바꾸다", "원하다"], "sentence": "수업을 바꾸고 싶어요.", "type": "declarative", "scenario": "university", "source": "manual"}
+{"glosses": ["나", "청각장애", "글", "쓰다", "부탁"], "sentence": "저는 청각장애인이라서 글로 써 주시면 좋겠어요.", "type": "declarative", "scenario": "general", "source": "manual"}
+{"glosses": ["다시", "천천히", "부탁"], "sentence": "다시 천천히 말씀해 주세요.", "type": "declarative", "scenario": "general", "source": "manual"}
+{"glosses": ["화장실", "어디"], "sentence": "화장실이 어디예요?", "type": "interrogative", "scenario": "general", "source": "manual"}
+{"glosses": ["고맙다"], "sentence": "감사합니다.", "type": "declarative", "scenario": "general", "source": "manual"}

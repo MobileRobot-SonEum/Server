@@ -1,0 +1,22 @@
+# 비밀값
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# AIHub 원본 데이터 (라이선스상 저장소에 올리지 않음)
+data/aihub/
+data/raw/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
