@@ -180,3 +180,15 @@ def test_to_text_messages_converts_tool_roles():
     assert {m["role"] for m in out} <= {"system", "user", "assistant"}
     assert json.loads(out[2]["content"]) == {"tool_calls": [{"name": "go_to", "arguments": {"location": "식당"}}]}
     assert out[3]["content"].startswith("[도구 결과: go_to]")
+
+
+def test_reasoning_effort_dropped_when_model_rejects_it():
+    def h(req, body, n):
+        if "reasoning_effort" in body:
+            return httpx.Response(400, json={"error": {"message": '"exaone3.5:7.8b" does not support thinking'}})
+        return httpx.Response(200, json=completion({"content": "ok"}))
+    c, seen = make_client(h, reasoning_effort="none")
+    assert asyncio.run(c.chat(MSGS)).content == "ok"
+    asyncio.run(c.chat(MSGS))
+    assert ["reasoning_effort" in b for b in seen] == [True, False, False]
+    assert c.reasoning_dropped

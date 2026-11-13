@@ -3,7 +3,7 @@
 어린이집 temi 로봇에서 교사가 말로 일을 시키면 LLM 에이전트가 temi 기능을 도구로 호출해 처리하는 서버입니다.
 응급 판정과 영상 인식은 현장의 다른 서버가 맡고, 이 서버에는 텍스트만 들어옵니다. 설계 원칙은 [CLAUDE.md](CLAUDE.md)를 보세요.
 
-> 진행 상황: **2단계 완료** (교사·아이 모드 에이전트, 승인 흐름, 이벤트·사고 보고서, 교사 알림). Docker·EC2 문서와 모델 비교 평가는 3단계에서 추가됩니다.
+> 진행 상황: **3단계 완료** (교사·아이 모드 에이전트, 승인 흐름, 이벤트·사고 보고서, 교사 알림, 모델 비교 평가, Docker, EC2 배포 문서).
 
 ## 로컬 실행
 
@@ -81,16 +81,67 @@ curl "http://localhost:8000/health?check_llm=true"
 
 키 만들기: `python -c "import secrets; print(secrets.token_urlsafe(32))"`
 
-## Ollama 설치와 모델 받기
+## Ollama 설치 (Windows 노트북)
 
-(3단계에서 자세히 작성 예정)
+1. https://ollama.com/download 에서 Windows용 설치 파일(OllamaSetup.exe)을 받아 실행합니다. 설치가 끝나면 Ollama가 백그라운드에서 `http://localhost:11434`로 실행됩니다.
+2. PowerShell에서 확인합니다.
+   ```powershell
+   ollama --version
+   ollama list
+   ```
 
-```bash
-# https://ollama.com/download 에서 설치 후
-ollama pull qwen3:14b
-ollama pull exaone3.5:7.8b
+### 노트북에서 아이 모드 시험하기 (작은 모델)
+
+노트북에서는 14B급 모델이 느리므로 작은 모델로 흐름을 확인합니다. 품질 비교는 EC2(T4)에서 [평가 스크립트](#모델-비교-평가)로 합니다.
+
+| 모델 | 크기 | 특징 |
+| --- | --- | --- |
+| `qwen3:4b` | 2.5GB | 도구 호출 지원(게임 시작), thinking은 `reasoning_effort=none`으로 끔 |
+| `exaone3.5:2.4b` | 1.6GB | 한국어에 강함, 도구 호출 미지원 → JSON 방식으로 자동 대체 |
+
+```powershell
+ollama pull qwen3:4b
 ```
+
+`.env`에서 아이 모드 모델만 바꿉니다(교사 모드는 Gemini 그대로 둬도 됨).
+
+```
+CHILD_LLM__BASE_URL=http://localhost:11434/v1
+CHILD_LLM__MODEL=qwen3:4b
+CHILD_LLM__REASONING_EFFORT=none
+CHILD_LLM__TIMEOUT_S=60   # 노트북 시험용. 운영값은 10
+CHILD_DEADLINE_S=60       # 노트북 시험용. 운영값은 10 (넘으면 기본 답변)
+```
+
+```powershell
+.venv/Scripts/python scripts/try_child.py                    # 대화형, 빈 줄로 종료
+.venv/Scripts/python scripts/try_child.py "엄마 보고 싶어"
+.venv/Scripts/python scripts/eval_models.py --models qwen3:4b --modes child --repeats 1   # 아이 문항 평가
+```
+
+CPU만 있는 노트북은 답변 하나에 수 초~수십 초가 걸릴 수 있어서 위처럼 시간 제한을 늘려 시험합니다. 평가도 같은 이유로 `--child-timeout 60 --child-deadline 60`을 붙이세요(결과 파일에 그 값이 기록됨).
+
+## 모델 비교 평가
+
+```powershell
+.venv/Scripts/python scripts/eval_models.py                  # .env의 EVAL_MODELS를 차례로, 문항당 3회
+.venv/Scripts/python scripts/eval_models.py --models qwen3:14b,exaone3.5:7.8b --only T05,C06 --repeats 1
+```
+
+- 문항: `scripts/eval_cases/` (교사 21개, 아이 22개, 직접 만든 초안)
+- 서버에 없는 모델은 건너뛰고 결과에 표시합니다. 모든 모델이 같은 생성 설정(temperature 0.2, max_tokens 512, reasoning_effort none)으로 돌고, 그 값을 결과 파일 맨 위에 적습니다.
+- 아이 모드 평가는 허용 목록 호스트(Ollama)에서만 돕니다(가상 문항이라 외부 API로 돌리려면 `--allow-external-child`).
+- 결과: `results/eval_models_*.md` (비교표, 문항별 성공 횟수 0~3, 틀린 문항), `results/eval_runs_*.csv`, `results/eval_child_replies_*.csv` (팀 5점 채점용)
+
+## Docker
+
+```powershell
+docker compose -f docker/compose.dev.yml up --build      # 노트북: 서버만 (http://localhost:8000)
+```
+
+EC2(GPU)는 `docker/compose.ec2.yml`을 씁니다(Ollama + 서버 + Caddy HTTPS). [docs/deploy_ec2.md](docs/deploy_ec2.md)를 보세요.
 
 ## EC2 g4dn 배포
 
-(3단계에서 작성 예정: 드라이버 포함 AMI, 보안 그룹 IP 제한, 미사용 시 인스턴스 중지)
+[docs/deploy_ec2.md](docs/deploy_ec2.md): 인스턴스·AMI·디스크 산정, 보안 그룹, HTTPS, 비용(켜고 끄기, 예산 알림, 유휴 자동 중지), 처음 띄운 뒤 할 일.
+**쓰지 않을 때는 반드시 인스턴스를 중지하세요.**

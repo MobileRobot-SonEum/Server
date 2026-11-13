@@ -178,3 +178,29 @@ def test_temi_key_forbidden_elsewhere(client, method, path):
 def test_child_endpoint_only_for_temi(client, key):
     r = client.post("/agent/child", json={"text": "안녕"}, headers={"X-API-Key": key})
     assert r.status_code == 403
+
+
+def test_child_llm_timeout_gives_default_reply(app, client, child_llm, monkeypatch):
+    import asyncio as _asyncio
+
+    async def slow(messages, tools=None):
+        await _asyncio.sleep(1.0)
+        return text_reply("늦은 답")
+    monkeypatch.setattr(child_llm, "chat", slow)
+    app.state.settings = app.state.settings.model_copy(update={"child_deadline_s": 0.1})
+    body = say(client, "공룡 이야기 해 줘")
+    assert body["fallback_reason"] == "timeout"
+    assert body["reply"] == app.state.safety_rules.fallback_reply
+    assert body["latency_ms"] < 900
+
+
+def test_child_llm_timeout_error_maps_to_timeout(client, child_llm):
+    child_llm.script.append(LLMError("timeout", "시간 초과"))
+    assert say(client, "공룡 좋아")["fallback_reason"] == "timeout"
+
+
+def test_teacher_response_has_timed_out_flag(client, teacher_llm):
+    teacher_llm.script.append(LLMError("timeout", "시간 초과"))
+    r = client.post("/agent/teacher", json={"instruction": "x"}, headers={"X-API-Key": TEACHER_KEY}).json()
+    assert r["status"] == "failed" and r["timed_out"] is True
+    assert r["answer"] == "응답이 늦어지고 있어요. 다시 시도해 주세요."

@@ -15,6 +15,9 @@ def rules():
     ("머리 아프다", "pain"),
     ("무릎에서 피 나", "injury"),
     ("나 넘어졌어", "injury"),
+    ("다리에서 피 나", "injury"),
+    ("코피 났어", "injury"),
+    ("피가 나요", "injury"),
     ("민수가 나 때렸어", "violence"),
     ("형한테 맞았어", "violence"),
     ("창문에서 뛰어내릴 거야", "danger"),
@@ -47,6 +50,8 @@ def test_emotional_signals(rules, text, category):
     "공룡 이야기 해 줘",
     "정답 맞았어",               # 퀴즈 정답은 폭력 아님
     "apple 이 사과야?",
+    "피아노 쳤어",               # "피" 오탐 방지 확인
+    "가온이네 집 주소 알려 줘",
 ])
 def test_no_signal(rules, text):
     assert check_utterance(text, rules).level is None

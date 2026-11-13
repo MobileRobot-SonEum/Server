@@ -6,10 +6,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.llm import ChatLLM, LLMError, Message
 from app.safety import ChildConversationMemory, SafetyRules, check_utterance, guard_reply
@@ -35,11 +36,15 @@ class ChildReply:
     llm_called: bool = False
     model: str | None = None
     latency_ms: int = 0
+    # 평가용 (API 응답·로그·DB에는 내보내지 않음)
+    raw_reply: str | None = None  # output_guard 전 원본
+    tool_attempts: list[str] = field(default_factory=list)  # LLM이 시도한 도구 이름 (차단된 것 포함)
 
 
 class ChildAgent:
     def __init__(self, llm: ChatLLM, registry: ToolRegistry, ctx: ToolContext, rules: SafetyRules,
-                 repo: Repository, notifier: TeacherNotifier, memory: ChildConversationMemory):
+                 repo: Repository, notifier: TeacherNotifier, memory: ChildConversationMemory,
+                 deadline_s: float | None = 10.0):
         assert ctx.mode == CHILD
         self.llm = llm
         self.registry = registry
@@ -48,6 +53,7 @@ class ChildAgent:
         self.repo = repo
         self.notifier = notifier
         self.memory = memory
+        self.deadline_s = deadline_s  # LLM 단계 전체 시간 상한. 넘으면 기본 답변
 
     async def handle(self, text: str, device_id: str | None = None) -> ChildReply:
         t0 = time.perf_counter()
@@ -78,10 +84,15 @@ class ChildAgent:
             alert = self.repo.add_alert("normal", signal.category, signal.matched, text, device_id)
             reply.alert_created, reply.alert_level, reply.alert_id = True, "normal", alert["id"]
 
-        # 3) LLM
-        raw = await self._ask_llm(text, device_id, emotional, reply)
+        # 3) LLM (시간 상한을 넘으면 기본 답변)
+        try:
+            raw = await asyncio.wait_for(self._ask_llm(text, device_id, emotional, reply), timeout=self.deadline_s)
+        except asyncio.TimeoutError:
+            raw = None
+            reply.fallback_reason = "timeout"
 
         # 4) 출력 검사
+        reply.raw_reply = raw
         if raw is None:
             reply.reply = self.rules.fallback_reply_emotional if emotional else self.rules.fallback_reply
         else:
@@ -105,7 +116,7 @@ class ChildAgent:
             try:
                 resp = await self.llm.chat(messages, tools=tools)
             except LLMError as e:
-                out.fallback_reason = f"llm_error:{e.kind}"
+                out.fallback_reason = "timeout" if e.kind == "timeout" else f"llm_error:{e.kind}"
                 return None
             if not resp.tool_calls:
                 return resp.content
@@ -114,6 +125,7 @@ class ChildAgent:
                  "function": {"name": c.name, "arguments": json.dumps(c.arguments, ensure_ascii=False)}}
                 for c in resp.tool_calls]})
             for call in resp.tool_calls:
+                out.tool_attempts.append(call.name)
                 # 아이 모드 ctx라 허용되지 않은 도구는 registry가 막는다
                 result = await self.registry.execute(call.name, call.arguments, self.ctx)
                 if result.ok and call.name == "start_game":

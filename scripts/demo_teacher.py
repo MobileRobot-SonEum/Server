@@ -89,6 +89,7 @@ async def main() -> int:
         ctx=ToolContext(executor=executor, data=data, mode=TEACHER, services=services),
         system_prompt=build_teacher_prompt(data.locations, data.games, today=now().date().isoformat()),
         max_steps=settings.agent_max_steps,
+        deadline_s=settings.agent_deadline_s,
     )
     try:
         result = await runner.run(instruction)
@@ -98,7 +99,7 @@ async def main() -> int:
 
     print(json.dumps({
         "status": result.status, "answer": result.answer, "question": result.question,
-        "steps": result.steps, "model": result.model, "trace": result.trace,
+        "steps": result.steps, "model": result.model, "timed_out": result.timed_out, "trace": result.trace,
     }, ensure_ascii=False, indent=2))
     return 0 if result.status != "failed" else 1
 

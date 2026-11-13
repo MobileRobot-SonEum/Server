@@ -40,6 +40,8 @@ class OpenAICompatClient:
         self._retry_backoff_s = retry_backoff_s
         # auto 모드에서 native 도구 호출이 안 된다고 확인되면 이후에는 바로 JSON 방식을 쓴다
         self._native_tools_unsupported = False
+        # thinking 설정을 거부하는 모델이면 이후 reasoning_effort를 보내지 않는다
+        self._reasoning_unsupported = False
 
     async def aclose(self) -> None:
         if self._owns_http:
@@ -177,9 +179,13 @@ class OpenAICompatClient:
         }
         if self.cfg.max_tokens:
             p["max_tokens"] = self.cfg.max_tokens
-        if self.cfg.reasoning_effort:
+        if self.cfg.reasoning_effort and not self._reasoning_unsupported:
             p["reasoning_effort"] = self.cfg.reasoning_effort
         return p
+
+    @property
+    def reasoning_dropped(self) -> bool:
+        return self._reasoning_unsupported
 
     @staticmethod
     def _first_message(data: dict[str, Any]) -> dict[str, Any]:
@@ -207,6 +213,19 @@ class OpenAICompatClient:
 
             if r.status_code >= 400:
                 err = LLMError("http", f"LLM HTTP {r.status_code}: {_error_text(r)}", status=r.status_code)
+                # thinking을 지원하지 않는 모델(예: exaone3.5)이 reasoning_effort를 거부하면 빼고 한 번 더
+                if (r.status_code == 400 and "reasoning_effort" in payload and not self._reasoning_unsupported
+                        and any(w in err.message.lower() for w in ("think", "reasoning"))):
+                    log.warning("모델 %s가 reasoning_effort를 지원하지 않아 빼고 다시 요청합니다", self.model)
+                    self._reasoning_unsupported = True
+                    payload = {k: v for k, v in payload.items() if k != "reasoning_effort"}
+                    r = await self._http.post(url, json=payload, headers=self._headers())
+                    if r.status_code < 400:
+                        try:
+                            return r.json()
+                        except ValueError as e:
+                            raise LLMError("bad_response", "LLM 응답이 JSON이 아닙니다", raw=r.text[:500]) from e
+                    err = LLMError("http", f"LLM HTTP {r.status_code}: {_error_text(r)}", status=r.status_code)
                 if r.status_code in _RETRYABLE_STATUS:
                     last_err = err
                     continue

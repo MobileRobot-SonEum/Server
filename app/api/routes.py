@@ -27,12 +27,13 @@ async def agent_teacher(req: TeacherRequest, request: Request) -> AgentResponse:
         system_prompt=build_teacher_prompt(st.data.locations, st.data.games,
                                            today=st.services["now"]().date().isoformat()),
         max_steps=st.settings.agent_max_steps,
+        deadline_s=st.settings.agent_deadline_s,
     )
     result = await runner.run(req.instruction)
     log.info("teacher agent: status=%s steps=%d model=%s", result.status, result.steps, result.model)
     return AgentResponse(
         status=result.status, answer=result.answer, question=result.question,
-        steps=result.steps, model=result.model, trace=result.trace,
+        steps=result.steps, model=result.model, timed_out=result.timed_out, trace=result.trace,
     )
 
 
@@ -47,6 +48,7 @@ async def agent_child(req: ChildRequest, request: Request) -> ChildResponse:
         repo=st.services["repo"],
         notifier=st.services["notifier"],
         memory=st.child_memory,
+        deadline_s=st.settings.child_deadline_s,
     )
     r = await agent.handle(req.text, req.device_id)
     return ChildResponse(reply=r.reply, alert_created=r.alert_created, alert_level=r.alert_level,

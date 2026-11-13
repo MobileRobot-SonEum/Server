@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
+from .plaintext import to_speech_text
 from .rules import SafetyRules
-
-_MARKDOWN = re.compile(r"[*#`>_~\[\]]")
 
 
 @dataclass
@@ -19,8 +17,7 @@ class GuardResult:
 
 def guard_reply(reply: str | None, rules: SafetyRules, emotional: bool = False) -> GuardResult:
     fallback = rules.fallback_reply_emotional if emotional else rules.fallback_reply
-    text = _MARKDOWN.sub("", reply or "")
-    text = re.sub(r"\s+", " ", text).strip()
+    text = to_speech_text(reply)  # 마크다운·이모지·특수기호 제거 (temi가 읽어 준다)
     if not text:
         return GuardResult(fallback, True, "empty")
     for p in rules.promise_patterns:

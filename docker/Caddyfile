@@ -1,0 +1,15 @@
+# DOMAIN 값에 따라 Caddy가 인증서를 알아서 처리한다.
+#  - 실제 도메인 / sslip.io 같은 도메인: Let's Encrypt 인증서 자동 발급·갱신 (80 포트가 인터넷에서 열려 있어야 함)
+#  - 공인 IP 주소: Caddy 내부 CA로 자체 서명 인증서 (교사 기기에 루트 인증서를 설치해야 경고가 없음)
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy server:8000
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000"
+	}
+	log {
+		output stdout
+		format console
+	}
+}

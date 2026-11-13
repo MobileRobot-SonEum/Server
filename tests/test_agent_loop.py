@@ -107,8 +107,8 @@ def test_format_error_twice_asks_teacher(executor, data):
 def test_llm_error_fails_clearly(executor, data):
     llm = ScriptedLLM([LLMError("timeout", "LLM 응답 시간 초과")])
     r = run(llm, executor, data)
-    assert r.status == "failed"
-    assert "시간 초과" in r.answer
+    assert r.status == "failed" and r.timed_out
+    assert r.answer == "응답이 늦어지고 있어요. 다시 시도해 주세요."
     err = next(s for s in r.trace if s["type"] == "llm_error")
     assert err["error"]["kind"] == "timeout"
 
@@ -140,3 +140,34 @@ def test_prompt_includes_locations_and_games(executor, data):
     run(llm, executor, data)
     system = llm.requests[0]["messages"][0]["content"]
     assert "놀이방" in system and "숨바꼭질" in system and "get_locations로 다시 확인" in system
+
+
+def test_connection_error_is_not_timeout(executor, data):
+    r = run(ScriptedLLM([LLMError("connection", "연결 실패")]), executor, data)
+    assert r.status == "failed" and not r.timed_out and "연결 실패" in r.answer
+
+
+class SlowLLM:
+    model = "slow"
+
+    def __init__(self, delay):
+        self.delay = delay
+
+    async def chat(self, messages, tools=None):
+        await asyncio.sleep(self.delay)
+        return text_reply("늦은 답")
+
+
+def test_overall_deadline(executor, data):
+    r = run(SlowLLM(1.0), executor, data, deadline_s=0.1)
+    assert r.status == "failed" and r.timed_out
+    assert r.answer == "응답이 늦어지고 있어요. 다시 시도해 주세요."
+    assert [s["type"] for s in r.trace][-2:] == ["timeout", "final"]
+
+
+def test_deadline_counts_tool_time(data):
+    from app.executors import MockRobotExecutor
+    slow_robot = MockRobotExecutor(data.locations, data.games, move_delay_s=1.0)
+    llm = ScriptedLLM([tools_reply(call("go_to", location="식당")), text_reply("도착")])
+    r = run(llm, slow_robot, data, deadline_s=0.2)
+    assert r.timed_out and r.steps == 1

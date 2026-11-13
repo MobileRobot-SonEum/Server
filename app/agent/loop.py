@@ -8,17 +8,21 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from app.llm import ChatLLM, LLMError, Message, ToolCall, ToolFormatError
+from app.safety.plaintext import to_plain_text
 
 from .prompts import ASK_TEACHER_TOOL, FORMAT_CORRECTION
 from .registry import ToolContext, ToolRegistry
 
 Status = Literal["completed", "needs_teacher", "failed"]
+
+SLOW_MESSAGE = "응답이 늦어지고 있어요. 다시 시도해 주세요."
 
 
 @dataclass
@@ -38,6 +42,7 @@ class AgentResult:
     trace: list[dict[str, Any]]
     steps: int
     model: str
+    timed_out: bool = False
 
 
 class AgentRunner:
@@ -50,6 +55,7 @@ class AgentRunner:
         max_steps: int = 8,
         max_tool_failures: int = 3,
         max_format_errors: int = 2,
+        deadline_s: float | None = 60.0,  # 지시 하나 전체 처리 시간 상한
     ):
         self.llm = llm
         self.registry = registry
@@ -58,26 +64,39 @@ class AgentRunner:
         self.max_steps = max_steps
         self.max_tool_failures = max_tool_failures
         self.max_format_errors = max_format_errors
+        self.deadline_s = deadline_s
 
     async def run(self, instruction: str) -> AgentResult:
+        trace = Trace()
+        state = {"step": 0}
+        try:
+            return await asyncio.wait_for(self._run(instruction, trace, state), timeout=self.deadline_s)
+        except asyncio.TimeoutError:
+            trace.add(state["step"], "timeout", deadline_s=self.deadline_s)
+            trace.add(state["step"], "final", status="failed", answer=SLOW_MESSAGE, question=None)
+            return AgentResult(status="failed", answer=SLOW_MESSAGE, question=None, trace=trace.steps,
+                               steps=state["step"], model=self.llm.model, timed_out=True)
+
+    async def _run(self, instruction: str, trace: Trace, state: dict) -> AgentResult:
         tools = self.registry.openai_schemas(self.ctx.mode) + [ASK_TEACHER_TOOL]
         messages: list[Message] = [
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": instruction},
         ]
-        trace = Trace()
         trace.add(0, "instruction", mode=self.ctx.mode, text=instruction,
                   tools=[t["function"]["name"] for t in tools])
         format_errors = 0
         tool_failures = 0
         last_failure = ""
 
-        def done(status: Status, answer: str, step: int, question: str | None = None) -> AgentResult:
+        def done(status: Status, answer: str, step: int, question: str | None = None,
+                 timed_out: bool = False) -> AgentResult:
             trace.add(step, "final", status=status, answer=answer, question=question)
             return AgentResult(status=status, answer=answer, question=question,
-                               trace=trace.steps, steps=step, model=self.llm.model)
+                               trace=trace.steps, steps=step, model=self.llm.model, timed_out=timed_out)
 
         for step in range(1, self.max_steps + 1):
+            state["step"] = step
             # 1) 모델에게 다음 행동을 묻는다
             try:
                 resp = await self.llm.chat(messages, tools=tools)
@@ -91,6 +110,8 @@ class AgentRunner:
                 continue
             except LLMError as e:
                 trace.add(step, "llm_error", error=e.to_dict())
+                if e.kind == "timeout":  # 재시도까지 시간 초과
+                    return done("failed", SLOW_MESSAGE, step, timed_out=True)
                 return done("failed", f"LLM 호출에 실패했습니다: {e.message}", step)
 
             trace.add(step, "llm", latency_ms=int(resp.latency_s * 1000), json_fallback=resp.used_json_fallback,
@@ -99,7 +120,7 @@ class AgentRunner:
 
             # 2) 도구 호출이 없으면 최종 답변
             if not resp.tool_calls:
-                answer = (resp.content or "").strip()
+                answer = to_plain_text(resp.content)  # 교사 앱 형식이 정해지기 전까지 일반 텍스트
                 if not answer:
                     format_errors += 1
                     trace.add(step, "llm_format_error", error="빈 응답")

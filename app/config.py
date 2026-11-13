@@ -34,7 +34,7 @@ class LLMSettings(BaseModel):
     base_url: str = "http://localhost:11434/v1"
     api_key: SecretStr = SecretStr("ollama")  # Ollama는 값이 필요하지만 무시한다
     model: str = "qwen3:14b"
-    timeout_s: float = 60.0
+    timeout_s: float = 25.0  # 호출 1번의 시간 제한 (재시도 1회 별도)
     temperature: float = 0.2
     max_tokens: int | None = None
     # 도구 호출 방식: native=tools 파라미터, json=JSON 출력 프롬프트, auto=native 실패 시 json으로 대체
@@ -69,9 +69,9 @@ class Settings(BaseSettings):
     )
 
     # --- LLM (모드별 분리) ---
-    teacher_llm: LLMSettings = Field(default_factory=LLMSettings)
+    teacher_llm: LLMSettings = Field(default_factory=lambda: LLMSettings(timeout_s=25.0))
     child_llm: LLMSettings = Field(
-        default_factory=lambda: LLMSettings(model="exaone3.5:7.8b", timeout_s=20.0)
+        default_factory=lambda: LLMSettings(model="exaone3.5:7.8b", timeout_s=10.0)
     )
     # 아이 모드 LLM이 쓸 수 있는 호스트 (쉼표 구분). 외부 API 도메인은 여기에 있어도 거부한다.
     child_allowed_llm_hosts: Annotated[list[str], NoDecode] = ["localhost", "127.0.0.1"]
@@ -84,6 +84,8 @@ class Settings(BaseSettings):
 
     # --- 에이전트 ---
     agent_max_steps: int = 8
+    agent_deadline_s: float = 60.0  # 교사 지시 하나 전체 처리 상한. 넘으면 "응답이 늦어지고 있어요" failed
+    child_deadline_s: float = 10.0  # 아이 모드 LLM 단계 상한. 넘으면 기본 답변
 
     # --- 로봇 실행기 ---
     robot_executor: Literal["mock", "control"] = "mock"
@@ -103,10 +105,15 @@ class Settings(BaseSettings):
     # --- 저장소 ---
     db_path: str = "temi_agent.db"
 
+    # --- 모델 비교 평가 (scripts/eval_models.py) ---
+    eval_models: Annotated[list[str], NoDecode] = ["qwen3:14b", "qwen3.5:9b", "gemma4:12b", "exaone3.5:7.8b"]
+    eval_base_url: str = ""  # 비우면 CHILD_LLM__BASE_URL
+    eval_api_key: SecretStr | None = None  # 비우면 CHILD_LLM__API_KEY
+
     timezone: str = "Asia/Seoul"
     log_level: str = "INFO"
 
-    _split_hosts = field_validator("child_allowed_llm_hosts", "mock_fail_tools", mode="before")(
+    _split_hosts = field_validator("child_allowed_llm_hosts", "mock_fail_tools", "eval_models", mode="before")(
         _split_csv
     )
 

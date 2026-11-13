@@ -1,0 +1,28 @@
+# 노트북 개발용: 에이전트 서버만 띄운다. LLM은 외부(Gemini/Groq) 또는 노트북에 따로 띄운 Ollama.
+#
+#   docker compose -f docker/compose.dev.yml up --build
+#
+# 노트북의 Ollama를 컨테이너에서 쓰려면 .env에서:
+#   CHILD_LLM__BASE_URL=http://host.docker.internal:11434/v1
+#   CHILD_ALLOWED_LLM_HOSTS=localhost,127.0.0.1,host.docker.internal
+name: temi-dev
+
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    env_file: ../.env
+    environment:
+      DB_PATH: /data/temi_agent.db
+    ports:
+      - "127.0.0.1:8000:8000"   # 노트북 안에서만 접속
+    volumes:
+      - server_data:/data
+      - ../results:/app/results
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Linux에서도 노트북 Ollama 접근
+    restart: unless-stopped
+
+volumes:
+  server_data:

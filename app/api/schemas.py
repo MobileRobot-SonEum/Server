@@ -15,6 +15,7 @@ class AgentResponse(BaseModel):
     question: str | None = None
     steps: int
     model: str
+    timed_out: bool = False  # 시간 초과로 failed면 true (교사 앱이 '다시 시도' 버튼에 쓸 수 있음)
     trace: list[dict[str, Any]]
 
 

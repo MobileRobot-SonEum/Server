@@ -1,0 +1,95 @@
+# EC2(g4dn, NVIDIA T4)용: Ollama(GPU) + 에이전트 서버 + Caddy(HTTPS)
+#
+#   cd ~/Server
+#   DOMAIN=temi-daycare.duckdns.org docker compose -f docker/compose.ec2.yml up -d --build
+#
+# - Ollama 11434 포트는 호스트에 열지 않는다. 컨테이너 내부 네트워크(ollama:11434)로만 접근.
+# - 에이전트 서버 8000도 호스트에 열지 않는다. 밖에서는 Caddy(443)만 보인다.
+# - SQLite DB(server_data), Ollama 모델(ollama_models), 인증서(caddy_data)는 볼륨에 남는다.
+# 자세한 내용: docs/deploy_ec2.md
+name: temi
+
+x-ollama-image: &ollama_image ollama/ollama:${OLLAMA_VERSION:-latest}   # 검증한 버전으로 고정 권장
+
+services:
+  ollama:
+    image: *ollama_image
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      OLLAMA_KEEP_ALIVE: 30m          # 마지막 요청 후 30분 동안 GPU에 올려 둠
+      OLLAMA_MAX_LOADED_MODELS: "1"   # T4 16GB: 한 번에 모델 하나
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+    # ports: 없음 (의도적)
+
+  # 처음 실행 시 설정된 모델을 받는다. 이미 있으면 빠르게 끝난다.
+  ollama-init:
+    image: *ollama_image
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_PULL_MODELS: ${OLLAMA_PULL_MODELS:-qwen3:14b,exaone3.5:7.8b}
+    volumes:
+      - ./pull_models.sh:/pull_models.sh:ro
+    entrypoint: ["/bin/sh", "/pull_models.sh"]
+    restart: "no"
+
+  server:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    env_file: ../.env
+    environment:
+      # 아이 모드는 같은 EC2의 Ollama만 (허용 목록 = ollama)
+      CHILD_LLM__BASE_URL: http://ollama:11434/v1
+      CHILD_ALLOWED_LLM_HOSTS: ollama
+      # 교사 모드도 Ollama. 외부 API(Gemini 등)를 쓰려면 아래 줄을 지우고 .env 값을 쓴다.
+      TEACHER_LLM__BASE_URL: http://ollama:11434/v1
+      EVAL_BASE_URL: http://ollama:11434/v1
+      DB_PATH: /data/temi_agent.db
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+    volumes:
+      - server_data:/data
+      - ../results:/app/results
+    restart: unless-stopped
+    # ports: 없음 (Caddy가 server:8000으로 전달)
+
+  caddy:
+    image: caddy:2
+    depends_on:
+      - server
+    environment:
+      DOMAIN: "${DOMAIN:?DOMAIN을 지정하세요 - 예 temi-daycare.duckdns.org (docs/deploy_ec2.md 4절)}"
+    ports:
+      - "80:80"     # 인증서 발급·갱신(HTTP-01)과 HTTPS 리다이렉트
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  ollama_models:
+  server_data:
+  caddy_data:
+  caddy_config:
