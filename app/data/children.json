@@ -1,0 +1,10 @@
+{
+  "_notice": "가상 데이터입니다. 아래 이름과 정보는 실제 아이가 아니며 개발·테스트용으로 만든 것입니다. 실제 원아 정보를 이 파일에 넣지 마세요.",
+  "children": [
+    {"name": "가온", "class": "햇살반", "age": 5, "allergies": ["땅콩"]},
+    {"name": "나래", "class": "햇살반", "age": 5, "allergies": []},
+    {"name": "다솜", "class": "햇살반", "age": 4, "allergies": ["우유", "달걀"]},
+    {"name": "라온", "class": "별빛반", "age": 6, "allergies": []},
+    {"name": "마루", "class": "별빛반", "age": 6, "allergies": ["밀"]}
+  ]
+}
