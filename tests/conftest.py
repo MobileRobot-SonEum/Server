@@ -13,6 +13,8 @@ from app.data import StaticData
 from app.executors import MockRobotExecutor
 from app.llm import LLMResponse, ToolCall
 from app.main import create_app
+from app.safety import ChildConversationMemory
+from app.services import LogMessageSender, LogTeacherNotifier
 
 TEACHER_KEY = "test-teacher-key"
 TEMI_KEY = "test-temi-key"
@@ -21,8 +23,8 @@ RULE_KEY = "test-rule-key"
 _ids = itertools.count(1)
 
 
-def call(name: str, **arguments: Any) -> ToolCall:
-    return ToolCall(id=f"call_{next(_ids)}", name=name, arguments=arguments)
+def call(tool_name: str, /, **arguments: Any) -> ToolCall:
+    return ToolCall(id=f"call_{next(_ids)}", name=tool_name, arguments=arguments)
 
 
 def tools_reply(*calls: ToolCall) -> LLMResponse:
@@ -88,8 +90,49 @@ def child_llm() -> ScriptedLLM:
     return ScriptedLLM(model="scripted-child")
 
 
+class FakeClock:
+    def __init__(self) -> None:
+        self.t = 1000.0
+
+    def __call__(self) -> float:
+        return self.t
+
+    def advance(self, seconds: float) -> None:
+        self.t += seconds
+
+
 @pytest.fixture
-def client(settings, teacher_llm, child_llm, executor):
-    app = create_app(settings, teacher_llm=teacher_llm, child_llm=child_llm, executor=executor)
+def clock() -> FakeClock:
+    return FakeClock()
+
+
+@pytest.fixture
+def memory(clock) -> ChildConversationMemory:
+    return ChildConversationMemory(max_turns=3, ttl_s=120, clock=clock)
+
+
+@pytest.fixture
+def sender() -> LogMessageSender:
+    return LogMessageSender()
+
+
+@pytest.fixture
+def notifier() -> LogTeacherNotifier:
+    return LogTeacherNotifier()
+
+
+@pytest.fixture
+def app(settings, teacher_llm, child_llm, executor, sender, notifier, memory):
+    return create_app(settings, teacher_llm=teacher_llm, child_llm=child_llm, executor=executor,
+                      sender=sender, notifier=notifier, memory=memory)
+
+
+@pytest.fixture
+def repo(app):
+    return app.state.services["repo"]
+
+
+@pytest.fixture
+def client(app):
     with TestClient(app) as c:
         yield c

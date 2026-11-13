@@ -3,7 +3,8 @@ import asyncio
 from app.agent.registry import CHILD, TEACHER, ToolContext, validate_args
 from app.tools import build_registry
 
-CHILD_FORBIDDEN = {"go_to", "speak", "get_locations", "start_delivery", "get_child_info"}
+CHILD_FORBIDDEN = {"go_to", "speak", "get_locations", "start_delivery", "get_child_info",
+                   "get_events", "draft_parent_message", "draft_incident_report"}
 
 
 def test_teacher_mode_gets_all_tools(data):

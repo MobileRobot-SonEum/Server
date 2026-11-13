@@ -1,7 +1,7 @@
 import asyncio
 
 from app.agent.loop import AgentRunner
-from app.agent.prompts import TEACHER_SYSTEM_PROMPT
+from app.agent.prompts import build_teacher_prompt
 from app.agent.registry import TEACHER, ToolContext
 from app.llm import LLMError, ToolFormatError
 from app.tools import build_registry
@@ -14,7 +14,7 @@ def run(llm, executor, data, instruction="테스트 지시", **kw):
         llm=llm,
         registry=build_registry(data),
         ctx=ToolContext(executor=executor, data=data, mode=TEACHER),
-        system_prompt=TEACHER_SYSTEM_PROMPT,
+        system_prompt=build_teacher_prompt(data.locations, data.games),
         **kw,
     )
     return asyncio.run(runner.run(instruction))
@@ -133,3 +133,10 @@ def test_delivery_unknown_target_not_started(executor, data):
     llm = ScriptedLLM([tools_reply(call("start_delivery", kind="meal", targets=["없는반"])), text_reply("x")])
     run(llm, executor, data)
     assert executor.calls == []
+
+
+def test_prompt_includes_locations_and_games(executor, data):
+    llm = ScriptedLLM([text_reply("네")])
+    run(llm, executor, data)
+    system = llm.requests[0]["messages"][0]["content"]
+    assert "놀이방" in system and "숨바꼭질" in system and "get_locations로 다시 확인" in system

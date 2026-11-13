@@ -24,12 +24,14 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
 from app.agent.loop import AgentRunner  # noqa: E402
-from app.agent.prompts import TEACHER_SYSTEM_PROMPT  # noqa: E402
+from app.agent.prompts import build_teacher_prompt  # noqa: E402
 from app.agent.registry import TEACHER, ToolContext  # noqa: E402
 from app.config import Settings  # noqa: E402
 from app.data import StaticData  # noqa: E402
 from app.executors import MockRobotExecutor  # noqa: E402
 from app.llm import LLMResponse, OpenAICompatClient, ToolCall  # noqa: E402
+from app.services import ApprovalService, IncidentService, LogMessageSender  # noqa: E402
+from app.storage import SQLiteRepository  # noqa: E402
 from app.tools import build_registry  # noqa: E402
 
 DEFAULT_INSTRUCTION = "간식 시간이야. 식당으로 가서 햇살반 간식 배부 시작하고, 아이들한테 손 씻고 오라고 말해 줘."
@@ -66,6 +68,14 @@ async def main() -> int:
         executor.fail_next("go_to", 1)
 
     settings = Settings()
+    # 새 도구(get_events, draft_*)용 메모리 DB. 데모가 끝나면 사라진다.
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(settings.timezone)
+    now = lambda: datetime.now(tz)  # noqa: E731
+    repo = SQLiteRepository(":memory:", now)
+    approvals = ApprovalService(repo, LogMessageSender(), data, now)
+    services = {"repo": repo, "approvals": approvals, "incidents": IncidentService(repo, approvals), "now": now}
     if args.mock_llm:
         llm = DemoScriptedLLM()
         instruction = DEFAULT_INSTRUCTION
@@ -76,8 +86,8 @@ async def main() -> int:
     runner = AgentRunner(
         llm=llm,
         registry=build_registry(data),
-        ctx=ToolContext(executor=executor, data=data, mode=TEACHER),
-        system_prompt=TEACHER_SYSTEM_PROMPT,
+        ctx=ToolContext(executor=executor, data=data, mode=TEACHER, services=services),
+        system_prompt=build_teacher_prompt(data.locations, data.games, today=now().date().isoformat()),
         max_steps=settings.agent_max_steps,
     )
     try:

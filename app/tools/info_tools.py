@@ -1,4 +1,4 @@
-"""정보 조회 도구: get_child_info (2단계에서 get_events 추가)."""
+"""정보 조회 도구: get_child_info. (이벤트 조회는 draft_tools.get_events)"""
 
 from __future__ import annotations
 

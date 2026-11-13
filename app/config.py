@@ -93,13 +93,17 @@ class Settings(BaseSettings):
     mock_seed: int | None = None
     control_ws_url: str = "ws://localhost:8765/control"
 
-    # --- 개인정보 ---
-    # 기본값 False: 아이 대화 원문을 로그·DB에 남기지 않는다 (교사 알림이 생긴 문장만 예외).
-    store_child_utterances: bool = False
+    # --- 아이 모드 ---
+    # 아이 대화 원문은 로그·DB에 남기지 않는다 (교사 알림이 생긴 문장만 teacher_alerts에 저장). 끄는 설정은 두지 않는다.
+    child_safety_rules_path: str = ""  # 비우면 config/child_safety.yaml
+    # 단기 대화 기억: temi별 최근 N턴을 메모리에만 두고 TTL 동안 대화가 없으면 지운다. 0이면 기억 안 함.
+    child_memory_turns: int = 3
+    child_memory_ttl_s: float = 120.0
 
     # --- 저장소 ---
     db_path: str = "temi_agent.db"
 
+    timezone: str = "Asia/Seoul"
     log_level: str = "INFO"
 
     _split_hosts = field_validator("child_allowed_llm_hosts", "mock_fail_tools", mode="before")(

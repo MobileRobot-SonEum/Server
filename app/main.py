@@ -4,15 +4,22 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI
 
 from app.api.auth import check_auth_config
+from app.api.records import router as records_router
 from app.api.routes import router
 from app.config import Settings, get_settings, validate_child_llm_host
 from app.data import StaticData
 from app.executors import ControlExecutor, MockRobotExecutor, RobotExecutor
 from app.llm import ChatLLM, OpenAICompatClient
+from app.safety import ChildConversationMemory, SafetyRules
+from app.services import (ApprovalService, IncidentService, LogMessageSender, LogTeacherNotifier, MessageSender,
+                          TeacherNotifier)
+from app.storage import SQLiteRepository
 from app.tools import build_registry
 
 
@@ -34,6 +41,9 @@ def create_app(
     teacher_llm: ChatLLM | None = None,
     child_llm: ChatLLM | None = None,
     executor: RobotExecutor | None = None,
+    sender: MessageSender | None = None,
+    notifier: TeacherNotifier | None = None,
+    memory: ChildConversationMemory | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -43,7 +53,13 @@ def create_app(
     validate_child_llm_host(settings)
     check_auth_config(settings)
 
+    tz = ZoneInfo(settings.timezone)
+
+    def now() -> datetime:
+        return datetime.now(tz)
+
     data = StaticData.load()
+    rules = SafetyRules.load(settings.child_safety_rules_path or None)
     owned: list = []
     if teacher_llm is None:
         teacher_llm = OpenAICompatClient(settings.teacher_llm)
@@ -53,20 +69,38 @@ def create_app(
         owned.append(child_llm)
     executor = executor or build_executor(settings, data)
 
+    repo = SQLiteRepository(settings.db_path, now)
+    sender = sender or LogMessageSender()
+    notifier = notifier or LogTeacherNotifier()
+    approvals = ApprovalService(repo, sender, data, now)
+    incidents = IncidentService(repo, approvals)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         yield
         for c in owned:
             await c.aclose()
         await executor.aclose()
+        repo.close()
 
-    app = FastAPI(title="temi 에이전트 서버", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="temi 에이전트 서버", version="0.2.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.data = data
     app.state.executor = executor
     app.state.registry = build_registry(data)
     app.state.teacher_llm = teacher_llm
     app.state.child_llm = child_llm
-    app.state.services = {}  # 2단계: 저장소, MessageSender
+    app.state.safety_rules = rules
+    app.state.child_memory = memory or ChildConversationMemory(settings.child_memory_turns,
+                                                              settings.child_memory_ttl_s)
+    app.state.services = {
+        "repo": repo,
+        "approvals": approvals,
+        "incidents": incidents,
+        "sender": sender,
+        "notifier": notifier,
+        "now": now,
+    }
     app.include_router(router)
+    app.include_router(records_router)
     return app
