@@ -63,6 +63,7 @@ curl "http://localhost:8000/health?check_llm=true"
 | `GET /alerts`, `POST /alerts/{id}/ack` | teacher_app | 아이 대화에서 생긴 교사 알림 |
 | `GET /reports`, `GET /reports/{id}` | teacher_app | 사고 보고서 초안 |
 | `GET /robot/jobs`, `GET /robot/jobs/{id}`, `GET /robot/devices` | teacher_app | temi 명령 기록(시작·완료·실패), 연결된 temi |
+| `POST /robot/stop` | teacher_app | 정지 버튼: LLM 없이 바로 stop. `device_id` 생략 시 연결된 모든 temi, 연결 없으면 409 |
 | `WS /ws/temi` | temi | 서버 → temi 명령 채널 ([docs/control_protocol.md](docs/control_protocol.md)) |
 | `GET /health` | 공개 | 상태, 모드별 모델, 연결된 temi |
 

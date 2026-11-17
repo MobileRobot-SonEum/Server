@@ -33,7 +33,7 @@ X-Device-Id: temi-classroom-1     (장치 ID: 영문·숫자·.·_·- 1~64자, /
    {"type": "welcome", "id": "a1b2c3d4", "device_id": "temi-classroom-1", "protocol": 1,
     "ping_interval_s": 20, "executor": "control", "server_time": "2026-11-17T10:30:00+09:00"}
    ```
-   `executor`가 `mock`이면 서버가 아직 가짜 실행기 모드라서 명령을 보내지 않습니다(연결은 유지).
+   `executor`가 `mock`이면 서버가 아직 가짜 실행기 모드라서 에이전트 명령은 보내지 않습니다(연결은 유지). 단, 교사 앱 **정지 버튼의 `stop`은 mock 모드에서도 보냅니다**.
 2. temi → 서버: `hello` (권장)
    ```json
    {"type": "hello", "id": "e5f6a7b8", "device_id": "temi-classroom-1", "app_version": "1.0.3", "protocol": 1,
@@ -154,6 +154,39 @@ X-Device-Id: temi-classroom-1     (장치 ID: 영문·숫자·.·_·- 1~64자, /
 - **기록 형식이 하나로 유지됩니다.** `/events`에는 이미 중복 방지(`event_id`), 시간대 검사, 해제 시 보고서 자동 생성이 있습니다. 같은 사건이 두 경로로 들어오면 보고서가 두 번 생길 수 있습니다.
 
 그래서 이 채널에 `type: "event"`를 보내면 서버는 `error`("현장 규칙 엔진을 거쳐 POST /events로 보내세요")로 답합니다. 규칙 엔진과 temi 사이의 연결 방식(같은 공유기 안의 HTTP 등)은 규칙 엔진 담당과 정해 주세요.
+
+## 교사 앱: 정지 버튼 (`POST /robot/stop`)
+
+LLM을 거치지 않고 바로 `stop` 명령을 보냅니다. 교사 앱의 정지 버튼에 연결하세요.
+
+```http
+POST /robot/stop
+X-API-Key: <TEACHER_APP_API_KEY>
+Content-Type: application/json
+
+{"device_id": "temi-classroom-1"}      ← 생략하거나 본문 없이 보내면 연결된 모든 temi
+```
+
+```json
+200 OK
+{
+  "all_acked": true,
+  "results": [
+    {"device_id": "temi-classroom-1", "ok": true, "job_id": "3c9e1f0a7b2d4e55", "status": "acked", "error": null}
+  ]
+}
+```
+
+| 상황 | 응답 | 교사 앱이 할 일 |
+| --- | --- | --- |
+| 모든 대상 temi가 stop을 받음 | 200, `all_acked: true` | "정지 명령을 보냈어요" |
+| 일부 temi가 5초 안에 ack 없음 | 200, `all_acked: false`, 해당 temi `ok: false`, `status: "ack_timeout"` | 그 temi를 화면에서 직접 멈추라고 표시 |
+| 지정한 temi가 연결 안 됨 / 연결된 temi가 없음 | **409**, `{"detail": "… 연결되어 있지 않아 정지 명령을 보낼 수 없습니다. temi 화면에서 직접 멈춰 주세요."}` | `detail`을 그대로 보여 주기 |
+| 키 없음·틀림 / 다른 역할 키 / device_id 형식 오류 | 401 / 403 / 422 | |
+
+- 여러 대에 보낼 때는 동시에 보내므로 응답은 최대 약 5초(ack 대기) 안에 옵니다.
+- 실행기가 `mock`이어도 연결된 temi에는 보냅니다(안전 우선).
+- temi 쪽 처리는 일반 `stop`과 같습니다: 바로 멈추고, 큐를 비우고, `result`를 보냅니다. 작업 기록의 `source_mode`는 `teacher_app`입니다.
 
 ## 교사 앱에서 결과 보기
 

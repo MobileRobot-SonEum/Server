@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS robot_jobs (
     device_id TEXT NOT NULL,
     action TEXT NOT NULL,
     args TEXT NOT NULL,
-    source_mode TEXT NOT NULL,        -- teacher | child
+    source_mode TEXT NOT NULL,        -- teacher | child | teacher_app(정지 버튼)
     status TEXT NOT NULL,             -- sent | acked | completed | failed | rejected | ack_timeout | timeout | disconnected
     detail TEXT,
     created_at TEXT NOT NULL,

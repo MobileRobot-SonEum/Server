@@ -165,3 +165,21 @@ class TemiDeviceOut(BaseModel):
     connected_at: str
     idle_s: float
     app_version: str | None = None
+
+
+class RobotStopIn(BaseModel):
+    device_id: str | None = Field(None, max_length=64, pattern=r"^[A-Za-z0-9._-]+$",
+                                  description="멈출 temi. 비우면 연결된 모든 temi")
+
+
+class RobotStopResult(BaseModel):
+    device_id: str
+    ok: bool  # temi가 stop 명령을 받았는가(ack)
+    job_id: str | None = None
+    status: str | None = None  # acked | ack_timeout | disconnected
+    error: str | None = None
+
+
+class RobotStopOut(BaseModel):
+    all_acked: bool
+    results: list[RobotStopResult]

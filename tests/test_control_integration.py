@@ -41,8 +41,8 @@ class LiveServer:
             _env_file=None,
             teacher_llm=LLMSettings(model="t"), child_llm=LLMSettings(model="c"),
             teacher_app_api_key=TEACHER_KEY, temi_api_key=TEMI_KEY, rule_engine_api_key="rule",
-            robot_executor="control", db_path=":memory:", log_level="WARNING",
-            **({"control_ack_timeout_s": 1.0} | settings_kw),
+            db_path=":memory:", log_level="WARNING",
+            **({"control_ack_timeout_s": 1.0, "robot_executor": "control"} | settings_kw),
         )
         self.app = create_app(settings, teacher_llm=self.teacher_llm, child_llm=self.child_llm)
         self.server = uvicorn.Server(uvicorn.Config(self.app, host="127.0.0.1", port=self.port, log_level="warning",
@@ -246,3 +246,88 @@ def test_fake_temi_runs_commands_in_order(live):
         assert first["finished_at"] <= second["finished_at"]
         await stop_temi(temi, task)
     asyncio.run(scenario())
+
+
+# --- POST /robot/stop (교사 앱 정지 버튼) ---
+
+def test_robot_stop_all_connected(live):
+    async def scenario():
+        a, ta = await start_temi(live, device="temi-a", delay_s=0.1)
+        b, tb = await start_temi(live, device="temi-b", delay_s=0.1)
+        async with httpx.AsyncClient(base_url=live.http) as client:
+            r = await client.post("/robot/stop", headers={"X-API-Key": TEACHER_KEY})
+            assert r.status_code == 200
+            body = r.json()
+            assert body["all_acked"] is True
+            assert sorted(x["device_id"] for x in body["results"]) == ["temi-a", "temi-b"]
+            for x in body["results"]:
+                job = await wait_job(client, x["job_id"], {"completed"})
+                assert job["action"] == "stop" and job["source_mode"] == "teacher_app"
+        assert [c["action"] for c in a.received] == ["stop"] and [c["action"] for c in b.received] == ["stop"]
+        assert live.teacher_llm.requests == []  # LLM을 거치지 않음
+        await stop_temi(a, ta)
+        await stop_temi(b, tb)
+    asyncio.run(scenario())
+
+
+def test_robot_stop_one_device(live):
+    async def scenario():
+        a, ta = await start_temi(live, device="temi-a")
+        b, tb = await start_temi(live, device="temi-b")
+        async with httpx.AsyncClient(base_url=live.http) as client:
+            body = (await client.post("/robot/stop", json={"device_id": "temi-b"},
+                                      headers={"X-API-Key": TEACHER_KEY})).json()
+        assert [x["device_id"] for x in body["results"]] == ["temi-b"]
+        assert a.received == [] and [c["action"] for c in b.received] == ["stop"]
+        await stop_temi(a, ta)
+        await stop_temi(b, tb)
+    asyncio.run(scenario())
+
+
+def test_robot_stop_not_connected_409(live):
+    async def scenario():
+        async with httpx.AsyncClient(base_url=live.http) as client:
+            r = await client.post("/robot/stop", headers={"X-API-Key": TEACHER_KEY})
+            assert r.status_code == 409 and "연결된 temi가 없어" in r.json()["detail"]
+            a, ta = await start_temi(live, device="temi-a")
+            r = await client.post("/robot/stop", json={"device_id": "temi-z"}, headers={"X-API-Key": TEACHER_KEY})
+            assert r.status_code == 409 and "temi-z" in r.json()["detail"]
+            await stop_temi(a, ta)
+    asyncio.run(scenario())
+
+
+def test_robot_stop_ack_timeout_reported(live):
+    async def scenario():
+        a, ta = await start_temi(live, device="temi-a", no_ack={"stop"})
+        b, tb = await start_temi(live, device="temi-b")
+        async with httpx.AsyncClient(base_url=live.http) as client:
+            body = (await client.post("/robot/stop", headers={"X-API-Key": TEACHER_KEY})).json()
+        res = {x["device_id"]: x for x in body["results"]}
+        assert body["all_acked"] is False
+        assert res["temi-a"]["status"] == "ack_timeout" and not res["temi-a"]["ok"]
+        assert res["temi-b"]["ok"]
+        await stop_temi(a, ta)
+        await stop_temi(b, tb)
+    asyncio.run(scenario())
+
+
+def test_robot_stop_auth(live):
+    async def scenario():
+        async with httpx.AsyncClient(base_url=live.http) as client:
+            assert (await client.post("/robot/stop")).status_code == 401
+            assert (await client.post("/robot/stop", headers={"X-API-Key": TEMI_KEY})).status_code == 403
+            assert (await client.post("/robot/stop", json={"device_id": "bad id!"},
+                                      headers={"X-API-Key": TEACHER_KEY})).status_code == 422
+    asyncio.run(scenario())
+
+
+def test_robot_stop_works_in_mock_mode():
+    """실행기가 mock이어도 연결된 temi가 있으면 정지 명령은 보낸다 (안전 우선)."""
+    async def scenario(live):
+        a, ta = await start_temi(live, device="temi-a")
+        async with httpx.AsyncClient(base_url=live.http) as client:
+            body = (await client.post("/robot/stop", headers={"X-API-Key": TEACHER_KEY})).json()
+        assert body["all_acked"] and [c["action"] for c in a.received] == ["stop"]
+        await stop_temi(a, ta)
+    with LiveServer(robot_executor="mock") as live:
+        asyncio.run(scenario(live))

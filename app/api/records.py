@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
+from app.control import AckTimeout, TemiNotConnected
 from app.services import ApprovalError
 
 from .auth import require_role
 from .schemas import (AckIn, AlertOut, ApprovalOut, ApproveIn, EventIn, EventOut, RejectIn, ReportOut,
-                      RobotJobOut, TemiDeviceOut)
+                      RobotJobOut, RobotStopIn, RobotStopOut, RobotStopResult, TemiDeviceOut)
 
 router = APIRouter()
 teacher_only = [Depends(require_role("teacher_app"))]
@@ -108,3 +110,35 @@ async def get_robot_job(job_id: str, request: Request) -> RobotJobOut:
 @router.get("/robot/devices", response_model=list[TemiDeviceOut], dependencies=teacher_only)
 async def list_temi_devices(request: Request) -> list[TemiDeviceOut]:
     return [TemiDeviceOut(**d) for d in request.app.state.temi_hub.connected_devices()]
+
+
+@router.post("/robot/stop", response_model=RobotStopOut, dependencies=teacher_only)
+async def robot_stop(request: Request, body: RobotStopIn | None = None) -> RobotStopOut:
+    """교사 앱 정지 버튼. LLM을 거치지 않고 바로 stop 명령을 보낸다 (실행기 mock/control과 상관없이).
+
+    device_id가 없으면 연결된 모든 temi에. 대상 temi가 연결돼 있지 않으면 409.
+    """
+    hub = request.app.state.temi_hub
+    connected = [d["device_id"] for d in hub.connected_devices()]
+    target = (body or RobotStopIn()).device_id
+    if target:
+        if target not in connected:
+            raise HTTPException(409, f"temi '{target}'가 서버에 연결되어 있지 않아 정지 명령을 보낼 수 없습니다. "
+                                     "temi 화면에서 직접 멈춰 주세요.")
+        devices = [target]
+    else:
+        if not connected:
+            raise HTTPException(409, "서버에 연결된 temi가 없어 정지 명령을 보낼 수 없습니다. temi 화면에서 직접 멈춰 주세요.")
+        devices = connected
+
+    async def stop_one(device_id: str) -> RobotStopResult:
+        try:
+            job = await hub.send_command(device_id, "stop", {}, source_mode="teacher_app")
+            return RobotStopResult(device_id=device_id, ok=True, job_id=job["id"], status=job["status"])
+        except AckTimeout as e:
+            return RobotStopResult(device_id=device_id, ok=False, status="ack_timeout", error=str(e))
+        except TemiNotConnected as e:
+            return RobotStopResult(device_id=device_id, ok=False, status="disconnected", error=str(e))
+
+    results = await asyncio.gather(*(stop_one(d) for d in devices))  # 여러 대면 동시에
+    return RobotStopOut(all_acked=all(r.ok for r in results), results=list(results))
