@@ -11,7 +11,8 @@ BOTH = frozenset({TEACHER, CHILD})
 
 
 def _from_exec(r: ExecResult) -> ToolResult:
-    return ToolResult(ok=r.ok, data=r.detail if r.ok else None, error=r.error, retryable=r.retryable)
+    return ToolResult(ok=r.ok, data=r.detail if r.ok else None, error=r.error, retryable=r.retryable,
+                      ask_teacher=r.ask_teacher)
 
 
 async def _get_locations(args: dict, ctx: ToolContext) -> ToolResult:
@@ -35,6 +36,10 @@ async def _go_to(args: dict, ctx: ToolContext) -> ToolResult:
 
 async def _speak(args: dict, ctx: ToolContext) -> ToolResult:
     return _from_exec(await ctx.executor.speak(args["text"].strip()))
+
+
+async def _stop(args: dict, ctx: ToolContext) -> ToolResult:
+    return _from_exec(await ctx.executor.stop())
 
 
 async def _start_game(args: dict, ctx: ToolContext) -> ToolResult:
@@ -126,6 +131,13 @@ def register_robot_tools(reg: ToolRegistry, data: StaticData) -> None:
         },
         allowed_modes=TEACHER_ONLY,
         handler=_start_delivery,
+    ))
+    reg.register(Tool(
+        name="stop",
+        description="temi가 하던 동작(이동, 배부, 게임, 말하기)을 멈춘다.",
+        input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        allowed_modes=TEACHER_ONLY,
+        handler=_stop,
     ))
     reg.register(Tool(
         name="start_game",

@@ -57,6 +57,7 @@
   - JSON 대체 경로: JSON이 전혀 없는 문장은 최종 답변으로 인정(exaone 아이 모드 tool_format 86%의 원인).
   - 평가: 질문으로 되묻기·도구 강제 되묻기를 ask_teacher로 인정, 한국어 아님 실패, 아이 모드에 사실 지어냄(`no_fabrication`)·행동 약속·존댓말 섞임 항목, 모델별 워밍업(측정 제외, 따로 기록), `GIT_COMMIT` 환경변수로 커밋 기록.
   - 배포: `.env` 주석은 윗줄에(줄 끝 주석 금지), 컨테이너 entrypoint가 /data·/app/results 소유자를 맞추고 uid 10001로 실행, `OLLAMA_KEEP_ALIVE=-1` 기본, 서버 시작 시 자체 서빙 모델 워밍업(`LLM_WARMUP_ON_START`, 외부 API 제외).
+- **temi 명령 채널(2026-11-17)**: temi가 NAT 뒤라 temi가 `wss://…/ws/temi`로 먼저 접속(헤더 X-API-Key=temi 키, X-Device-Id). 틀리면 handshake 403. 같은 device_id 재접속 시 이전 연결 close 4000. 메시지는 모두 type·id: 서버→temi `command{id,action,args,timeout_s}`, temi→서버 `ack{id}`(즉시)·`result{id,status: completed|failed|rejected,detail}`, 양쪽 ping/pong 20초(60초 무응답 시 4001). `ControlExecutor`는 ack까지만 기다리고(5초, `CONTROL_ACK_TIMEOUT_S`) 도구 결과는 `status=started, job_id` → AGENT_DEADLINE_S는 동작 완료를 기다리지 않음. 결과는 `robot_jobs` 테이블(sent→acked→completed/failed/rejected, ack_timeout/timeout/disconnected), 교사 앱은 `GET /robot/jobs`, `/robot/devices`. temi 미연결·ack 없음은 `ExecResult.ask_teacher`로 즉시 needs_teacher. 아이 모드 명령은 ControlExecutor에서도 start_game만(이중 방어). action args는 도구 스키마와 동일(start_game은 `name`). `stop` 도구 추가(교사 전용). `ROBOT_EXECUTOR`(또는 `EXECUTOR`)=mock(기본)|control. 허브(`app/control/hub.py`)는 전송과 분리(테스트는 가짜 연결 + 실제 uvicorn 통합 테스트). ack 후 바로 다음 명령을 보내므로 **temi 앱은 명령을 받은 순서대로 하나씩 실행(큐), 앞 명령 실패 시 남은 명령 rejected, stop만 즉시·큐 비움** (fake_temi도 그렇게 동작). temi 감지 이벤트는 이 채널로 받지 않고 현장 규칙 엔진 → `/events` (응급 경로가 인터넷·EC2에 의존하지 않게, 판정 일원화) — WS `type:event`는 error 응답. Caddy는 WebSocket 그대로 전달(로컬 caddy:2 컨테이너로 확인), reload 시 `stream_close_delay 5m`.
 - **배포**: EC2 compose는 Ollama 11434·서버 8000을 호스트에 열지 않고 Caddy(443/80)만 공개. HTTPS 필수(키·아이 문장이 오감). 채택: DuckDNS 무료 도메인 + Elastic IP(고정, DuckDNS에 한 번 등록) + Caddy Let's Encrypt(HTTP-01, 80은 전체 공개·API는 443만). 차선책: sslip.io 또는 공인 IP+Caddy 내부 CA. 공인 IPv4는 사용·유휴 모두 $0.005/h. Cloudflare 중계는 개인정보 원칙상 비권장. 컨테이너 uid 10001.
 
 ## 진행 상황
@@ -65,7 +66,8 @@
 - [x] 3단계: `scripts/eval_models.py`(교사 21·아이 22 문항, 문항당 3회), Docker(`docker/compose.dev.yml`, `docker/compose.ec2.yml`), `docs/deploy_ec2.md`, README(Ollama Windows, 작은 모델 시험)
 - [x] 2026-11-17 EC2(T4) 평가 → **qwen3:14b를 교사·아이 공용 모델로 결정** (교사 67%, 아이 95%; exaone3.5:7.8b는 교사 48%, 아이 14%). 결과는 `../Server_eval/`.
 - [x] 평가 후 개선 11건 반영 (아래 '평가 후 개선'), EC2 재평가는 사용자가 진행
-- [ ] 다음 후보: `ControlExecutor`(temi WebSocket 규격 확정 후), 교사 앱 응답 구조화 필드, 이벤트 형식 규칙 엔진 담당과 합의
+- [x] 2026-11-17 temi 연결: `docs/temi_api.md`(HTTP), `/ws/temi` 명령 채널 + `ControlExecutor` 실제 구현, `scripts/fake_temi.py`, `docs/control_protocol.md`
+- [ ] 다음 후보: 교사 앱 응답 구조화 필드, 이벤트 형식 규칙 엔진 담당과 합의
 
 ## 구조
 ```
@@ -89,6 +91,11 @@ scripts/demo_teacher.py   교사 지시 1개 실행 기록 출력 (--mock-llm)
 scripts/demo_incident.py  감지→해제→보고서·승인 대기→승인→전송 스텁 시나리오
 scripts/demo_child.py     아이 모드 예시 3개 (모의 LLM)
 scripts/try_child.py      실제 아이 모드 LLM과 대화 (노트북 Ollama 시험)
+scripts/fake_temi.py      시험용 가짜 temi (/ws/temi 접속, ack 후 2초 뒤 completed)
+app/control/hub.py        temi 명령 채널 허브 (연결·명령·ack·result·ping)
+app/api/temi_ws.py        /ws/temi 엔드포인트
+docs/temi_api.md          temi 앱용 HTTP API (/health, /agent/child)
+docs/control_protocol.md  temi 명령 채널 규격 (Android용)
 scripts/eval_models.py    모델 비교 평가 → results/eval_models_*.md, eval_runs_*.csv, eval_child_replies_*.csv
 scripts/eval_cases/       평가 문항 (교사 21, 아이 22)
 app/safety/plaintext.py   마크다운·이모지 → 일반 텍스트/말하기용 텍스트

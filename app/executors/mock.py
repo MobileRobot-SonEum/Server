@@ -78,5 +78,12 @@ class MockRobotExecutor:
             return f
         return ExecResult(ok=True, detail={"game": name, "status": "started"})
 
+    async def stop(self) -> ExecResult:
+        self.calls.append(("stop", {}))
+        return ExecResult(ok=True, detail={"status": "stopped", "at": self.current_location})
+
+    def bind(self, device_id: str | None, mode: str) -> "MockRobotExecutor":
+        return self  # 가짜 실행기는 temi 한 대를 흉내 내므로 그대로
+
     async def aclose(self) -> None:
         return None

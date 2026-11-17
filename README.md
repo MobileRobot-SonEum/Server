@@ -62,7 +62,23 @@ curl "http://localhost:8000/health?check_llm=true"
 | `POST /approvals/{id}/reject` | teacher_app | 거절. 본문 `{reason}` 필수 |
 | `GET /alerts`, `POST /alerts/{id}/ack` | teacher_app | 아이 대화에서 생긴 교사 알림 |
 | `GET /reports`, `GET /reports/{id}` | teacher_app | 사고 보고서 초안 |
-| `GET /health` | 공개 | 상태, 모드별 모델 |
+| `GET /robot/jobs`, `GET /robot/jobs/{id}`, `GET /robot/devices` | teacher_app | temi 명령 기록(시작·완료·실패), 연결된 temi |
+| `WS /ws/temi` | temi | 서버 → temi 명령 채널 ([docs/control_protocol.md](docs/control_protocol.md)) |
+| `GET /health` | 공개 | 상태, 모드별 모델, 연결된 temi |
+
+temi 앱 담당용 문서: [docs/temi_api.md](docs/temi_api.md)(HTTP), [docs/control_protocol.md](docs/control_protocol.md)(명령 채널).
+
+### temi 명령 채널 시험
+
+```powershell
+# 1) 서버를 control 모드로 (.env에 ROBOT_EXECUTOR=control 또는 EXECUTOR=control)
+.venv/Scripts/python -m uvicorn app.main:create_app --factory --reload
+# 2) 다른 창에서 가짜 temi 접속 (명령을 받으면 로그를 찍고 2초 뒤 completed)
+.venv/Scripts/python scripts/fake_temi.py --url ws://localhost:8000/ws/temi --device temi-test-1
+# 3) 교사 지시 → 응답에 status=started, job_id → GET /robot/jobs/{job_id}로 완료 확인
+```
+
+기본값은 `ROBOT_EXECUTOR=mock`(가짜 실행기)입니다. control 모드에서 temi가 연결돼 있지 않으면 에이전트가 바로 교사에게 "temi가 서버에 연결되어 있지 않아요"라고 알립니다.
 
 ## 아이 안전 규칙 고치기
 
@@ -75,8 +91,8 @@ curl "http://localhost:8000/health?check_llm=true"
 
 | 역할 | 키 | 쓸 수 있는 API |
 | --- | --- | --- |
-| 교사 앱 | `TEACHER_APP_API_KEY` | `/agent/teacher`, `/approvals`, `/alerts`, `/reports` |
-| temi | `TEMI_API_KEY` | `/agent/child` |
+| 교사 앱 | `TEACHER_APP_API_KEY` | `/agent/teacher`, `/approvals`, `/alerts`, `/reports`, `/robot/*` |
+| temi | `TEMI_API_KEY` | `/agent/child`, `/ws/temi` |
 | 현장 규칙 엔진 | `RULE_ENGINE_API_KEY` | `/events` |
 
 키 만들기: `python -c "import secrets; print(secrets.token_urlsafe(32))"`

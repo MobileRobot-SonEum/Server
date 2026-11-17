@@ -10,7 +10,7 @@ from functools import lru_cache
 from typing import Annotated, Literal
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field, SecretStr, field_validator
+from pydantic import AliasChoices, BaseModel, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # 아이 모드에서는 허용 목록에 있어도 거부하는 외부 LLM API 도메인.
@@ -90,12 +90,18 @@ class Settings(BaseSettings):
     child_deadline_s: float = 10.0  # 아이 모드 LLM 단계 상한. 넘으면 기본 답변
 
     # --- 로봇 실행기 ---
-    robot_executor: Literal["mock", "control"] = "mock"
+    # mock: 가짜 실행기(기본, 테스트) / control: /ws/temi로 연결된 실제 temi에 명령. EXECUTOR로도 설정 가능
+    robot_executor: Literal["mock", "control"] = Field(
+        "mock", validation_alias=AliasChoices("ROBOT_EXECUTOR", "EXECUTOR", "robot_executor"))
     mock_move_delay_s: float = 0.5
     mock_failure_rate: float = 0.0
     mock_fail_tools: Annotated[list[str], NoDecode] = []  # 비우면 모든 동작이 실패 대상
     mock_seed: int | None = None
-    control_ws_url: str = "ws://localhost:8765/control"
+    # --- temi 명령 채널 (/ws/temi, docs/control_protocol.md) ---
+    temi_default_device_id: str | None = None  # 교사 지시를 보낼 temi. 비우면 연결된 temi가 하나일 때 그것
+    control_ack_timeout_s: float = 5.0  # 명령 후 ack를 기다리는 시간
+    control_ping_interval_s: float = 20.0
+    control_result_grace_s: float = 10.0  # 동작별 timeout_s 뒤 결과를 더 기다리는 여유
 
     # --- 아이 모드 ---
     # 아이 대화 원문은 로그·DB에 남기지 않는다 (교사 알림이 생긴 문장만 teacher_alerts에 저장). 끄는 설정은 두지 않는다.

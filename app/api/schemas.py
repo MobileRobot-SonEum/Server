@@ -32,12 +32,14 @@ class HealthResponse(BaseModel):
     status: Literal["ok"]
     executor: str
     models: dict[str, ModelInfo]
+    temi_connected: list[str] = []  # /ws/temi에 연결된 temi device_id
 
 
 # ------------------------------------------------------------------ 아이 모드
 class ChildRequest(BaseModel):
     text: str = Field(min_length=1, max_length=300)
-    device_id: str | None = Field(None, max_length=64, description="temi 장치 ID (단기 대화 기억의 구분 키)")
+    device_id: str | None = Field(None, max_length=64, pattern=r"^[A-Za-z0-9._-]+$",
+                                  description="temi 장치 ID (단기 대화 기억의 구분 키, 명령 채널과 같은 값)")
 
 
 class ChildResponse(BaseModel):
@@ -143,3 +145,23 @@ class ReportOut(BaseModel):
     fields: dict[str, Any]
     created_by: str
     created_at: str
+
+
+class RobotJobOut(BaseModel):
+    id: str
+    device_id: str
+    action: str
+    args: dict[str, Any]
+    source_mode: str
+    status: str  # sent | acked | completed | failed | rejected | ack_timeout | timeout | disconnected
+    detail: dict[str, Any] | None
+    created_at: str
+    acked_at: str | None
+    finished_at: str | None
+
+
+class TemiDeviceOut(BaseModel):
+    device_id: str
+    connected_at: str
+    idle_s: float
+    app_version: str | None = None

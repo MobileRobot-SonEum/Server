@@ -219,6 +219,8 @@ curl https://$DOMAIN/health                                     # 학교·팀원
 - **모델 상주(`OLLAMA_KEEP_ALIVE=-1`)**: 모델을 GPU에서 내리지 않아 첫 요청이 느려지는 일이 없습니다. 대신 GPU 메모리를 계속 차지하므로, 다른 모델을 시험할 때는 `OLLAMA_KEEP_ALIVE=30m docker compose ... up -d`처럼 바꾸거나 `docker compose ... exec ollama ollama stop <모델>`로 내립니다.
 - **시작 워밍업**: 서버가 시작하면서 Ollama 모델에 짧은 요청을 보내 GPU에 올립니다(최대 5분, 백그라운드). 인스턴스를 켠 직후 1~2분은 첫 요청이 느릴 수 있으니, 시연 전에 로그에서 "워밍업 완료"를 확인하세요.
 - **교사 모드 시간 제한**: 호출 25초, 지시 전체 60초입니다. 워밍업 전에 요청하면 "응답이 늦어지고 있어요"가 나올 수 있습니다.
+- **temi 연결**: 실제 temi로 움직이려면 `.env`에 `ROBOT_EXECUTOR=control`을 넣고 `up -d`로 다시 만듭니다. temi 앱은 `wss://$DOMAIN/ws/temi`로 접속합니다([control_protocol.md](control_protocol.md)). Caddy는 WebSocket을 그대로 넘기며, 설정을 다시 읽어도 5분 동안 연결을 유지합니다(`stream_close_delay`). temi 여러 대를 붙이면 `TEMI_DEFAULT_DEVICE_ID`로 교사 지시를 받을 temi를 정하세요.
+- **서버 재시작 시 temi 연결이 끊깁니다.** temi 앱이 자동으로 다시 붙어야 하고, 끊긴 순간 진행 중이던 작업은 `disconnected`로 기록됩니다.
 
 ## 6. 비용: 켜고 끄기, 예산 알림
 

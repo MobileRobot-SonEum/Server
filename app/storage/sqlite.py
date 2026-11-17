@@ -59,6 +59,20 @@ CREATE TABLE IF NOT EXISTS approvals (
 );
 CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
 
+CREATE TABLE IF NOT EXISTS robot_jobs (
+    id TEXT PRIMARY KEY,              -- command id = job_id
+    device_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    args TEXT NOT NULL,
+    source_mode TEXT NOT NULL,        -- teacher | child
+    status TEXT NOT NULL,             -- sent | acked | completed | failed | rejected | ack_timeout | timeout | disconnected
+    detail TEXT,
+    created_at TEXT NOT NULL,
+    acked_at TEXT,
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_device_status ON robot_jobs(device_id, status);
+
 CREATE TABLE IF NOT EXISTS teacher_alerts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     level TEXT NOT NULL,
@@ -230,11 +244,65 @@ class SQLiteRepository:
                    "acknowledged_by = COALESCE(acknowledged_by, ?) WHERE id = ?", (self._ts(), by, alert_id))
         return self.get_alert(alert_id)
 
+    # ------------------------------------------------------------ robot jobs
+    @staticmethod
+    def _job_out(r: Row) -> Row:
+        r["args"] = json.loads(r["args"])
+        r["detail"] = json.loads(r["detail"]) if r.get("detail") else None
+        return r
+
+    def add_job(self, job_id: str, device_id: str, action: str, args: dict, source_mode: str) -> Row:
+        self._exec("INSERT INTO robot_jobs (id, device_id, action, args, source_mode, status, created_at) "
+                   "VALUES (?, ?, ?, ?, ?, 'sent', ?)",
+                   (job_id, device_id, action, json.dumps(args, ensure_ascii=False), source_mode, self._ts()))
+        return self.get_job(job_id)  # type: ignore[return-value]
+
+    def get_job(self, job_id: str) -> Row | None:
+        r = self._one("SELECT * FROM robot_jobs WHERE id = ?", (job_id,))
+        return self._job_out(r) if r else None
+
+    def update_job(self, job_id: str, status: str, detail: dict | None = None, *, acked: bool = False,
+                   finished: bool = False, only_if: tuple[str, ...] | None = None) -> Row | None:
+        """only_if가 있으면 현재 상태가 그중 하나일 때만 바꾼다 (늦게 온 결과가 덮어쓰지 않게)."""
+        sets, params = ["status = ?"], [status]
+        if detail is not None:
+            sets.append("detail = ?")
+            params.append(json.dumps(detail, ensure_ascii=False))
+        if acked:
+            sets.append("acked_at = COALESCE(acked_at, ?)")
+            params.append(self._ts())
+        if finished:
+            sets.append("finished_at = ?")
+            params.append(self._ts())
+        sql = f"UPDATE robot_jobs SET {', '.join(sets)} WHERE id = ?"
+        params.append(job_id)
+        if only_if:
+            sql += f" AND status IN ({', '.join('?' * len(only_if))})"
+            params.extend(only_if)
+        self._exec(sql, tuple(params))
+        return self.get_job(job_id)
+
+    def list_jobs(self, status: str | None = None, device_id: str | None = None, limit: int = 50) -> list[Row]:
+        sql, params = "SELECT * FROM robot_jobs WHERE 1=1", []
+        if status:
+            sql += " AND status = ?"
+            params.append(status)
+        if device_id:
+            sql += " AND device_id = ?"
+            params.append(device_id)
+        sql += " ORDER BY created_at DESC, rowid DESC LIMIT ?"
+        params.append(limit)
+        return [self._job_out(r) for r in self._q(sql, tuple(params))]
+
+    def open_jobs(self, device_id: str) -> list[Row]:
+        return [self._job_out(r) for r in self._q(
+            "SELECT * FROM robot_jobs WHERE device_id = ? AND status IN ('sent', 'acked')", (device_id,))]
+
     # ------------------------------------------------------------ debug
     def dump_all_text(self) -> str:
         """테스트용: 모든 테이블의 모든 값을 이어 붙인 문자열 (원문 미저장 검사)."""
         parts = []
-        for table in ("events", "incident_reports", "approvals", "teacher_alerts"):
+        for table in ("events", "incident_reports", "approvals", "teacher_alerts", "robot_jobs"):
             for r in self._q(f"SELECT * FROM {table}"):
                 parts.extend(str(v) for v in r.values())
         return "\n".join(parts)

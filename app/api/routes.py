@@ -19,7 +19,7 @@ router = APIRouter()
 @router.post("/agent/teacher", response_model=AgentResponse, dependencies=[Depends(require_role("teacher_app"))])
 async def agent_teacher(req: TeacherRequest, request: Request) -> AgentResponse:
     st = request.app.state
-    ctx = ToolContext(executor=st.executor, data=st.data, mode=TEACHER, services=st.services)
+    ctx = ToolContext(executor=_bind(st.executor, None, TEACHER), data=st.data, mode=TEACHER, services=st.services)
     runner = AgentRunner(
         llm=st.teacher_llm,
         registry=st.registry,
@@ -46,7 +46,9 @@ async def agent_child(req: ChildRequest, request: Request) -> ChildResponse:
     agent = ChildAgent(
         llm=st.child_llm,
         registry=st.registry,
-        ctx=ToolContext(executor=st.executor, data=st.data, mode=CHILD, services=st.services),
+        # 이 아이와 이야기 중인 temi에만, 아이 모드 제한(start_game만)으로
+        ctx=ToolContext(executor=_bind(st.executor, req.device_id, CHILD), data=st.data, mode=CHILD,
+                        services=st.services),
         rules=st.safety_rules,
         repo=st.services["repo"],
         notifier=st.services["notifier"],
@@ -70,4 +72,10 @@ async def health(request: Request, check_llm: bool = False) -> HealthResponse:
             reachable = (await client.ping()).get("ok", False)
         models[mode] = ModelInfo(model=cfg.model, host=cfg.host, tool_mode=cfg.tool_mode,
                                  reasoning_effort=cfg.reasoning_effort, reachable=reachable)
-    return HealthResponse(status="ok", executor=st.executor.name, models=models)
+    return HealthResponse(status="ok", executor=st.executor.name, models=models,
+                          temi_connected=[d["device_id"] for d in st.temi_hub.connected_devices()])
+
+
+def _bind(executor, device_id: str | None, mode: str):
+    """요청마다 대상 temi·모드를 정한다 (ControlExecutor). 가짜 실행기 등 bind가 없으면 그대로."""
+    return executor.bind(device_id, mode) if hasattr(executor, "bind") else executor

@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from app.services import ApprovalError
 
 from .auth import require_role
-from .schemas import (AckIn, AlertOut, ApprovalOut, ApproveIn, EventIn, EventOut, RejectIn, ReportOut)
+from .schemas import (AckIn, AlertOut, ApprovalOut, ApproveIn, EventIn, EventOut, RejectIn, ReportOut,
+                      RobotJobOut, TemiDeviceOut)
 
 router = APIRouter()
 teacher_only = [Depends(require_role("teacher_app"))]
@@ -86,3 +87,24 @@ async def get_report(report_id: int, request: Request) -> ReportOut:
     if r is None:
         raise HTTPException(404, f"보고서 {report_id}이(가) 없습니다")
     return ReportOut(**r)
+
+
+# ------------------------------------------------------------------ robot jobs (서버 → temi 명령 기록)
+@router.get("/robot/jobs", response_model=list[RobotJobOut], dependencies=teacher_only)
+async def list_robot_jobs(request: Request, status_: str | None = Query(None, alias="status"),
+                          device_id: str | None = None, limit: int = Query(50, ge=1, le=500)) -> list[RobotJobOut]:
+    repo = request.app.state.services["repo"]
+    return [RobotJobOut(**j) for j in repo.list_jobs(status=status_, device_id=device_id, limit=limit)]
+
+
+@router.get("/robot/jobs/{job_id}", response_model=RobotJobOut, dependencies=teacher_only)
+async def get_robot_job(job_id: str, request: Request) -> RobotJobOut:
+    j = request.app.state.services["repo"].get_job(job_id)
+    if j is None:
+        raise HTTPException(404, f"작업 {job_id}이(가) 없습니다")
+    return RobotJobOut(**j)
+
+
+@router.get("/robot/devices", response_model=list[TemiDeviceOut], dependencies=teacher_only)
+async def list_temi_devices(request: Request) -> list[TemiDeviceOut]:
+    return [TemiDeviceOut(**d) for d in request.app.state.temi_hub.connected_devices()]

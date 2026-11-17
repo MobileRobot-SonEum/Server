@@ -12,8 +12,10 @@ from fastapi import FastAPI
 
 from app.api.auth import check_auth_config
 from app.api.records import router as records_router
+from app.api.temi_ws import router as temi_ws_router
 from app.api.routes import router
 from app.config import Settings, get_settings, validate_child_llm_host
+from app.control import TemiHub
 from app.data import StaticData
 from app.executors import ControlExecutor, MockRobotExecutor, RobotExecutor
 from app.llm import ChatLLM, OpenAICompatClient
@@ -26,9 +28,9 @@ from app.storage import SQLiteRepository
 from app.tools import build_registry
 
 
-def build_executor(settings: Settings, data: StaticData) -> RobotExecutor:
+def build_executor(settings: Settings, data: StaticData, hub: TemiHub) -> RobotExecutor:
     if settings.robot_executor == "control":
-        return ControlExecutor(settings.control_ws_url)
+        return ControlExecutor(hub, data.locations)
     return MockRobotExecutor(
         locations=data.locations,
         games=data.games,
@@ -71,9 +73,12 @@ def create_app(
     if child_llm is None:
         child_llm = OpenAICompatClient(settings.child_llm)
         owned.append(child_llm)
-    executor = executor or build_executor(settings, data)
-
     repo = SQLiteRepository(settings.db_path, now)
+    # temi 명령 채널은 실행기 종류와 상관없이 열어 둔다 (mock일 때는 명령을 보내지 않음)
+    hub = TemiHub(repo, now, ack_timeout_s=settings.control_ack_timeout_s,
+                  ping_interval_s=settings.control_ping_interval_s, result_grace_s=settings.control_result_grace_s,
+                  default_device_id=settings.temi_default_device_id, known_locations=data.locations)
+    executor = executor or build_executor(settings, data, hub)
     sender = sender or LogMessageSender()
     notifier = notifier or LogTeacherNotifier()
     approvals = ApprovalService(repo, sender, data, now)
@@ -86,6 +91,7 @@ def create_app(
         yield
         if warm_task and not warm_task.done():
             warm_task.cancel()
+        await hub.shutdown()
         for c in owned:
             await c.aclose()
         await executor.aclose()
@@ -95,6 +101,7 @@ def create_app(
     app.state.settings = settings
     app.state.data = data
     app.state.executor = executor
+    app.state.temi_hub = hub
     app.state.registry = build_registry(data)
     app.state.teacher_llm = teacher_llm
     app.state.child_llm = child_llm
@@ -112,4 +119,5 @@ def create_app(
     }
     app.include_router(router)
     app.include_router(records_router)
+    app.include_router(temi_ws_router)
     return app

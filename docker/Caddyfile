@@ -3,7 +3,11 @@
 #  - 공인 IP 주소: Caddy 내부 CA로 자체 서명 인증서 (교사 기기에 루트 인증서를 설치해야 경고가 없음)
 {$DOMAIN} {
 	encode gzip
-	reverse_proxy server:8000
+	# WebSocket(/ws/temi)도 별도 설정 없이 그대로 전달된다.
+	# 설정을 다시 읽을 때(reload) 열린 WebSocket을 바로 끊지 않고 5분 유예 (temi는 끊겨도 다시 붙음)
+	reverse_proxy server:8000 {
+		stream_close_delay 5m
+	}
 	header {
 		-Server
 		Strict-Transport-Security "max-age=31536000"
