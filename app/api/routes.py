@@ -28,12 +28,15 @@ async def agent_teacher(req: TeacherRequest, request: Request) -> AgentResponse:
                                            today=st.services["now"]().date().isoformat()),
         max_steps=st.settings.agent_max_steps,
         deadline_s=st.settings.agent_deadline_s,
+        emergency_rules=st.teacher_emergency_rules,
     )
     result = await runner.run(req.instruction)
-    log.info("teacher agent: status=%s steps=%d model=%s", result.status, result.steps, result.model)
+    log.info("teacher agent: status=%s steps=%d model=%s emergency=%s", result.status, result.steps,
+             result.model, result.emergency_redirect)
     return AgentResponse(
         status=result.status, answer=result.answer, question=result.question,
-        steps=result.steps, model=result.model, timed_out=result.timed_out, trace=result.trace,
+        steps=result.steps, model=result.model, timed_out=result.timed_out,
+        emergency_redirect=result.emergency_redirect, trace=result.trace,
     )
 
 

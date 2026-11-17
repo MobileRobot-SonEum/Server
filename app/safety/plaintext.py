@@ -63,3 +63,23 @@ def to_speech_text(text: str | None) -> str:
     t = _EMOJI.sub("", t)
     t = _SPEECH_SYMBOLS.sub("", t)
     return re.sub(r"\s+", " ", t).strip()
+
+
+# 한자·가나 (qwen 계열이 가끔 중국어로 답함)
+_FOREIGN_SCRIPT = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]")
+
+
+def has_foreign_script(text: str | None) -> bool:
+    return bool(text) and bool(_FOREIGN_SCRIPT.search(text))
+
+
+# 로봇 이름 표기: 모델이 '_temii', '_tempi', 'temi'처럼 쓰는 것을 '테미'로
+_NAME_GARBLE = re.compile(r"_+\s*t[a-z]{2,6}", re.IGNORECASE)
+_NAME_LATIN = re.compile(r"(?<![A-Za-z])temi(?![A-Za-z])", re.IGNORECASE)
+
+
+def normalize_robot_name(text: str | None) -> str:
+    if not text:
+        return ""
+    t = _NAME_GARBLE.sub("테미", text)
+    return _NAME_LATIN.sub("테미", t)

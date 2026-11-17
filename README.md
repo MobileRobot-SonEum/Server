@@ -66,7 +66,7 @@ curl "http://localhost:8000/health?check_llm=true"
 
 ## 아이 안전 규칙 고치기
 
-`config/child_safety.yaml`에서 위험 신호 패턴(긴급·정서), 오탐 제외어, 약속 표현, 고정 답변을 고칩니다. 고친 뒤 서버를 다시 시작하세요.
+`config/child_safety.yaml`에서 위험 신호 패턴(긴급·정서), 오탐 제외어, 약속·행동 약속 표현, 고정 답변을 고칩니다. 교사 모드 응급 지시 규칙은 `config/teacher_emergency.yaml`입니다. 고친 뒤 서버를 다시 시작하세요.
 알림마다 걸린 규칙이 `matched`에 남으니(`GET /alerts`) 오탐·누락을 보고 조정하면 됩니다.
 
 ## 접근 제어

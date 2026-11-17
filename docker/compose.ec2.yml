@@ -17,8 +17,10 @@ services:
     volumes:
       - ollama_models:/root/.ollama
     environment:
-      OLLAMA_KEEP_ALIVE: 30m          # 마지막 요청 후 30분 동안 GPU에 올려 둠
-      OLLAMA_MAX_LOADED_MODELS: "1"   # T4 16GB: 한 번에 모델 하나
+      # 모델을 GPU에 계속 올려 둠(-1). 첫 요청 지연(수십 초)을 없앤다. 메모리를 비우려면 30m 등으로
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:--1}
+      # T4 16GB: 한 번에 모델 하나 (교사·아이 공용 모델이면 충분)
+      OLLAMA_MAX_LOADED_MODELS: "1"
     deploy:
       resources:
         reservations:
@@ -43,7 +45,7 @@ services:
         condition: service_healthy
     environment:
       OLLAMA_HOST: http://ollama:11434
-      OLLAMA_PULL_MODELS: ${OLLAMA_PULL_MODELS:-qwen3:14b,exaone3.5:7.8b}
+      OLLAMA_PULL_MODELS: ${OLLAMA_PULL_MODELS:-qwen3:14b}
     volumes:
       - ./pull_models.sh:/pull_models.sh:ro
     entrypoint: ["/bin/sh", "/pull_models.sh"]
@@ -62,6 +64,8 @@ services:
       TEACHER_LLM__BASE_URL: http://ollama:11434/v1
       EVAL_BASE_URL: http://ollama:11434/v1
       DB_PATH: /data/temi_agent.db
+      # 평가 결과에 코드 커밋을 남기기 위해 (컨테이너에는 .git이 없음): export GIT_COMMIT=$(git rev-parse --short HEAD)
+      GIT_COMMIT: ${GIT_COMMIT:-unknown}
     depends_on:
       ollama:
         condition: service_healthy

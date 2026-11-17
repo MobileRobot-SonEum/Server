@@ -19,7 +19,10 @@ COPY scripts ./scripts
 RUN useradd --create-home --uid 10001 temi \
     && mkdir -p /data /app/results \
     && chown -R temi /data /app/results
-USER temi
+# root로 시작해 마운트 폴더 권한을 맞춘 뒤 temi로 내려간다 (docker/entrypoint.sh)
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \

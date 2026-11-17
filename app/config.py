@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     # --- LLM (모드별 분리) ---
     teacher_llm: LLMSettings = Field(default_factory=lambda: LLMSettings(timeout_s=25.0))
     child_llm: LLMSettings = Field(
-        default_factory=lambda: LLMSettings(model="exaone3.5:7.8b", timeout_s=10.0)
+        default_factory=lambda: LLMSettings(model="qwen3:14b", timeout_s=10.0, reasoning_effort="none")
     )
     # 아이 모드 LLM이 쓸 수 있는 호스트 (쉼표 구분). 외부 API 도메인은 여기에 있어도 거부한다.
     child_allowed_llm_hosts: Annotated[list[str], NoDecode] = ["localhost", "127.0.0.1"]
@@ -84,6 +84,8 @@ class Settings(BaseSettings):
 
     # --- 에이전트 ---
     agent_max_steps: int = 8
+    # 서버 시작 시 자체 서빙 LLM(허용 목록 호스트) 워밍업. 외부 API는 하지 않음
+    llm_warmup_on_start: bool = True
     agent_deadline_s: float = 60.0  # 교사 지시 하나 전체 처리 상한. 넘으면 "응답이 늦어지고 있어요" failed
     child_deadline_s: float = 10.0  # 아이 모드 LLM 단계 상한. 넘으면 기본 답변
 
@@ -98,6 +100,7 @@ class Settings(BaseSettings):
     # --- 아이 모드 ---
     # 아이 대화 원문은 로그·DB에 남기지 않는다 (교사 알림이 생긴 문장만 teacher_alerts에 저장). 끄는 설정은 두지 않는다.
     child_safety_rules_path: str = ""  # 비우면 config/child_safety.yaml
+    teacher_emergency_rules_path: str = ""  # 비우면 config/teacher_emergency.yaml
     # 단기 대화 기억: temi별 최근 N턴을 메모리에만 두고 TTL 동안 대화가 없으면 지운다. 0이면 기억 안 함.
     child_memory_turns: int = 3
     child_memory_ttl_s: float = 120.0

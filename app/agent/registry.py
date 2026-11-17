@@ -30,13 +30,15 @@ class ToolResult:
     data: Any = None
     error: str | None = None
     retryable: bool = False
+    # 교사 모드에서 이 값이 있으면 에이전트가 더 진행하지 않고 이 질문으로 교사에게 되묻는다
+    ask_teacher: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"ok": self.ok}
-        if self.ok:
-            d["data"] = self.data
-        else:
+        if not self.ok:
             d["error"] = self.error
+        if self.data is not None:
+            d["data"] = self.data
         return d
 
 

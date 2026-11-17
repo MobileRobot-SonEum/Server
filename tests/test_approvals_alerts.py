@@ -121,3 +121,9 @@ def test_alerts_list_urgent_first_and_ack(client, child_llm):
 def test_teacher_only_lists(client, path):
     assert client.get(path, headers={"X-API-Key": TEMI_KEY}).status_code == 403
     assert client.get(path).status_code == 401
+
+
+def test_draft_and_approve_normalize_calling_name(client, teacher_llm, repo):
+    tool = draft_via_agent(client, teacher_llm, child="다솜이")
+    assert tool["ok"]
+    assert repo.get_approval(tool["result"]["approval_id"])["child"] == "다솜"

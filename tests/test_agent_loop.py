@@ -63,14 +63,42 @@ def test_repeated_failures_return_question(executor, data):
 
 def test_tool_error_is_fed_back_to_llm(executor, data):
     llm = ScriptedLLM([
-        tools_reply(call("go_to", location="옥상")),  # 없는 위치
-        tools_reply(call("get_locations")),
-        tools_reply(call("go_to", location="놀이방")),
-        text_reply("놀이방으로 갔습니다."),
+        tools_reply(call("get_child_info", name="없는아이")),
+        text_reply("그런 아이는 없습니다."),
     ])
     r = run(llm, executor, data)
     assert r.status == "completed"
-    assert "저장되지 않은 위치" in llm.requests[1]["messages"][-1]["content"]
+    assert "찾지 못했습니다" in llm.requests[1]["messages"][-1]["content"]
+
+
+def test_unknown_location_asks_teacher_without_moving(executor, data):
+    llm = ScriptedLLM([tools_reply(call("go_to", location="옥상"))])
+    r = run(llm, executor, data)
+    assert r.status == "needs_teacher"
+    assert "옥상" in r.question and "놀이방" in r.question
+    assert executor.calls == [] and len(llm.requests) == 1
+
+
+def test_unknown_game_asks_teacher_and_suggests(executor, data):
+    llm = ScriptedLLM([tools_reply(call("start_game", name="숨바꼭질놀이"))])
+    r = run(llm, executor, data)
+    assert r.status == "needs_teacher" and "혹시 숨바꼭질" in r.question
+    assert executor.calls == []
+
+
+def test_child_info_strips_calling_suffix(executor, data):
+    llm = ScriptedLLM([tools_reply(call("get_child_info", name="다솜이")), text_reply("우유, 달걀")])
+    r = run(llm, executor, data)
+    tool = next(s for s in r.trace if s["type"] == "tool")
+    assert tool["ok"] and tool["result"]["name"] == "다솜"
+
+
+def test_child_info_suggests_similar(executor, data):
+    llm = ScriptedLLM([tools_reply(call("get_child_info", name="다손")), text_reply("x")])
+    r = run(llm, executor, data)
+    tool = next(s for s in r.trace if s["type"] == "tool")
+    assert not tool["ok"] and "다솜" in tool["error"]
+    assert '"candidates": ["다솜"]' in llm.requests[1]["messages"][-1]["content"]
 
 
 def test_ask_teacher(executor, data):
@@ -139,7 +167,7 @@ def test_prompt_includes_locations_and_games(executor, data):
     llm = ScriptedLLM([text_reply("네")])
     run(llm, executor, data)
     system = llm.requests[0]["messages"][0]["content"]
-    assert "놀이방" in system and "숨바꼭질" in system and "get_locations로 다시 확인" in system
+    assert "놀이방" in system and "숨바꼭질" in system and "목록에 없는 장소·게임을 말하면 실행하지 말고" in system
 
 
 def test_connection_error_is_not_timeout(executor, data):

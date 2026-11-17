@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -16,7 +17,9 @@ from app.config import Settings, get_settings, validate_child_llm_host
 from app.data import StaticData
 from app.executors import ControlExecutor, MockRobotExecutor, RobotExecutor
 from app.llm import ChatLLM, OpenAICompatClient
+from app.llm.warmup import warmup
 from app.safety import ChildConversationMemory, SafetyRules
+from app.safety.teacher_filter import TeacherEmergencyRules
 from app.services import (ApprovalService, IncidentService, LogMessageSender, LogTeacherNotifier, MessageSender,
                           TeacherNotifier)
 from app.storage import SQLiteRepository
@@ -60,6 +63,7 @@ def create_app(
 
     data = StaticData.load()
     rules = SafetyRules.load(settings.child_safety_rules_path or None)
+    teacher_emergency = TeacherEmergencyRules.load(settings.teacher_emergency_rules_path or None)
     owned: list = []
     if teacher_llm is None:
         teacher_llm = OpenAICompatClient(settings.teacher_llm)
@@ -77,7 +81,11 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # 자체 서빙 모델을 미리 GPU에 올린다 (요청을 막지 않게 백그라운드). 테스트처럼 LLM을 주입한 경우는 생략
+        warm_task = asyncio.create_task(warmup(settings)) if (settings.llm_warmup_on_start and owned) else None
         yield
+        if warm_task and not warm_task.done():
+            warm_task.cancel()
         for c in owned:
             await c.aclose()
         await executor.aclose()
@@ -91,6 +99,7 @@ def create_app(
     app.state.teacher_llm = teacher_llm
     app.state.child_llm = child_llm
     app.state.safety_rules = rules
+    app.state.teacher_emergency_rules = teacher_emergency
     app.state.child_memory = memory or ChildConversationMemory(settings.child_memory_turns,
                                                               settings.child_memory_ttl_s)
     app.state.services = {

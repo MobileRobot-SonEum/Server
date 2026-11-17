@@ -10,5 +10,6 @@ __pycache__
 results
 tests
 .pytest_cache
-docker
+docker/*
+!docker/entrypoint.sh
 *.md

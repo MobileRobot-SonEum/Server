@@ -34,7 +34,8 @@ def test_child_can_start_listed_game_only(data, executor):
     ctx = ToolContext(executor=executor, data=data, mode=CHILD)
     assert asyncio.run(reg.execute("start_game", {"name": "숨바꼭질"}, ctx)).ok
     r = asyncio.run(reg.execute("start_game", {"name": "칼싸움"}, ctx))
-    assert not r.ok and "허용 값" in r.error
+    assert not r.ok and "목록에 없는 게임" in r.error
+    assert executor.calls == [("start_game", {"name": "숨바꼭질"})]
 
 
 def test_unknown_tool(data, executor):

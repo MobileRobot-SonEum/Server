@@ -125,6 +125,12 @@ def parse_json_action(text: str | None) -> tuple[str | None, list[ToolCall]]:
     """JSON 출력에서 (최종 답변, 도구 호출 목록)을 꺼낸다. 형식이 틀리면 ToolFormatError."""
     if not text or not text.strip():
         raise ToolFormatError("빈 응답", raw=text)
+    # JSON을 전혀 쓰지 않은 그냥 문장은 최종 답변으로 받는다.
+    # (도구 미지원 모델이 아이 모드처럼 대화만 할 때 흔함. 깨진 JSON은 여전히 형식 오류)
+    plain = strip_think(text)
+    fenced = _FENCE_RE.search(plain)
+    if "{" not in plain and not fenced and plain:
+        return plain, []
     obj = _extract_json_object(text)
     if not isinstance(obj, dict):
         raise ToolFormatError("JSON 최상위가 객체가 아닙니다", raw=text[:500])

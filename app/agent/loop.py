@@ -15,9 +15,10 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from app.llm import ChatLLM, LLMError, Message, ToolCall, ToolFormatError
-from app.safety.plaintext import to_plain_text
+from app.safety.plaintext import has_foreign_script, to_plain_text
+from app.safety.teacher_filter import TeacherEmergencyRules
 
-from .prompts import ASK_TEACHER_TOOL, FORMAT_CORRECTION
+from .prompts import ASK_TEACHER_TOOL, FORMAT_CORRECTION, KOREAN_CORRECTION
 from .registry import ToolContext, ToolRegistry
 
 Status = Literal["completed", "needs_teacher", "failed"]
@@ -43,6 +44,7 @@ class AgentResult:
     steps: int
     model: str
     timed_out: bool = False
+    emergency_redirect: bool = False  # 응급 지시라 규칙으로 안내만 하고 끝냄 (LLM 미호출)
 
 
 class AgentRunner:
@@ -56,6 +58,7 @@ class AgentRunner:
         max_tool_failures: int = 3,
         max_format_errors: int = 2,
         deadline_s: float | None = 60.0,  # 지시 하나 전체 처리 시간 상한
+        emergency_rules: TeacherEmergencyRules | None = None,
     ):
         self.llm = llm
         self.registry = registry
@@ -65,6 +68,7 @@ class AgentRunner:
         self.max_tool_failures = max_tool_failures
         self.max_format_errors = max_format_errors
         self.deadline_s = deadline_s
+        self.emergency_rules = emergency_rules
 
     async def run(self, instruction: str) -> AgentResult:
         trace = Trace()
@@ -85,6 +89,16 @@ class AgentRunner:
         ]
         trace.add(0, "instruction", mode=self.ctx.mode, text=instruction,
                   tools=[t["function"]["name"] for t in tools])
+
+        # 응급 지시: LLM을 부르지 않고 규칙으로 안내 (설계 원칙 1)
+        if self.emergency_rules is not None:
+            matched = self.emergency_rules.check(instruction)
+            if matched:
+                trace.add(0, "rule", rule="teacher_emergency", matched=matched)
+                trace.add(0, "final", status="completed", answer=self.emergency_rules.reply, question=None)
+                return AgentResult(status="completed", answer=self.emergency_rules.reply, question=None,
+                                   trace=trace.steps, steps=0, model=self.llm.model, emergency_redirect=True)
+
         format_errors = 0
         tool_failures = 0
         last_failure = ""
@@ -121,6 +135,15 @@ class AgentRunner:
             # 2) 도구 호출이 없으면 최종 답변
             if not resp.tool_calls:
                 answer = to_plain_text(resp.content)  # 교사 앱 형식이 정해지기 전까지 일반 텍스트
+                if answer and has_foreign_script(answer):
+                    format_errors += 1
+                    trace.add(step, "llm_format_error", error="한국어가 아닌 답변")
+                    if format_errors >= self.max_format_errors:
+                        q = "모델이 한국어로 답하지 못했습니다. 지시를 다시 말씀해 주시겠어요?"
+                        return done("needs_teacher", q, step, question=q)
+                    messages.append({"role": "assistant", "content": resp.content or ""})
+                    messages.append({"role": "user", "content": KOREAN_CORRECTION})
+                    continue
                 if not answer:
                     format_errors += 1
                     trace.add(step, "llm_format_error", error="빈 응답")
@@ -159,6 +182,9 @@ class AgentRunner:
                     "name": call.name,
                     "content": json.dumps(result.to_dict(), ensure_ascii=False),
                 })
+                if result.ask_teacher:
+                    # 목록 밖 장소·게임 등: 모델이 추측해서 이어가지 않게 바로 교사에게 묻는다
+                    return done("needs_teacher", result.ask_teacher, step, question=result.ask_teacher)
 
             if tool_failures >= self.max_tool_failures:
                 q = f"도구 실행이 {tool_failures}번 실패해 멈췄습니다 (마지막 실패 - {last_failure}). 어떻게 할까요?"

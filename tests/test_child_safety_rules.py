@@ -114,3 +114,34 @@ def test_long_reply_without_boundary_falls_back(rules):
 
 def test_empty_reply(rules):
     assert guard_reply("", rules).reason == "empty"
+
+
+@pytest.mark.parametrize("reply", [
+    "알겠어. 선생님께 문자 보내줄게요.",
+    "응, 엄마한테 전해 줄게!",
+    "식당에 가 줄게.",
+    "내가 가져올게!",
+])
+def test_action_promises_replaced(rules, reply):
+    g = guard_reply(reply, rules)
+    assert g.replaced and g.reason.startswith("action_promise:")
+
+
+def test_fixed_replies_pass_guard(rules):
+    for text in (rules.urgent_fixed_reply, rules.fallback_reply, rules.fallback_reply_emotional):
+        assert not guard_reply(text, rules).replaced, text
+
+
+@pytest.mark.parametrize("raw,clean", [
+    ("천둥 소리가 무서워?_temii가 곁에 있어.", "천둥 소리가 무서워?테미가 곁에 있어."),
+    ("_tempi가 곁에 있으니 괜찮아.", "테미가 곁에 있으니 괜찮아."),
+    ("Temi랑 놀자!", "테미랑 놀자!"),
+])
+def test_robot_name_garble_cleaned(rules, raw, clean):
+    g = guard_reply(raw, rules)
+    assert g.text == clean and not g.replaced
+
+
+def test_non_korean_replaced(rules):
+    g = guard_reply("去哪里呢？", rules)
+    assert g.replaced and g.reason == "non_korean"

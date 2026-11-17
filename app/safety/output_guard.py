@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .plaintext import to_speech_text
+from .plaintext import has_foreign_script, normalize_robot_name, to_speech_text
 from .rules import SafetyRules
 
 
@@ -12,17 +12,23 @@ from .rules import SafetyRules
 class GuardResult:
     text: str
     replaced: bool
-    reason: str | None = None  # promise | banned | empty | too_long_no_boundary | truncated
+    reason: str | None = None  # promise | action_promise | non_korean | banned | empty | too_long_no_boundary | truncated
 
 
 def guard_reply(reply: str | None, rules: SafetyRules, emotional: bool = False) -> GuardResult:
     fallback = rules.fallback_reply_emotional if emotional else rules.fallback_reply
-    text = to_speech_text(reply)  # 마크다운·이모지·특수기호 제거 (temi가 읽어 준다)
+    # '_temii' 같은 깨진 이름 정리 → 마크다운·이모지·특수기호 제거 (테미가 읽어 준다)
+    text = to_speech_text(normalize_robot_name(reply))
     if not text:
         return GuardResult(fallback, True, "empty")
     for p in rules.promise_patterns:
         if p.search(text):
             return GuardResult(fallback, True, f"promise:{p.pattern}")
+    for p in rules.action_promise_patterns:
+        if p.search(text):
+            return GuardResult(fallback, True, f"action_promise:{p.pattern}")
+    if has_foreign_script(text):
+        return GuardResult(fallback, True, "non_korean")
     for p in rules.banned_patterns:
         if p.search(text):
             return GuardResult(fallback, True, f"banned:{p.pattern}")

@@ -30,10 +30,12 @@ async def _get_events(args: dict, ctx: ToolContext) -> ToolResult:
 
 
 async def _draft_parent_message(args: dict, ctx: ToolContext) -> ToolResult:
-    child = args["child"].strip()
-    if ctx.data.find_child(child) is None:
-        return ToolResult(ok=False, error=f"등록되지 않은 아이입니다: {child}")
-    a = ctx.services["approvals"].create_draft(child=child, text=args["text"], source="agent")
+    found = ctx.data.find_child(args["child"])
+    if found is None:
+        cands = ctx.data.similar_names(args["child"])
+        hint = f" 비슷한 이름: {', '.join(cands)}" if cands else ""
+        return ToolResult(ok=False, error=f"등록되지 않은 아이입니다: {args['child']}.{hint}", data={"candidates": cands})
+    a = ctx.services["approvals"].create_draft(child=found["name"], text=args["text"], source="agent")
     return ToolResult(ok=True, data={"approval_id": a["id"], "status": a["status"],
                                      "note": "승인 대기로 저장했습니다. 교사가 승인해야 부모에게 전송됩니다."})
 

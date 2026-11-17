@@ -159,8 +159,14 @@ def test_parse_json_action_variants():
     assert calls[0].name == "get_locations" and calls[0].arguments == {}
 
 
-@pytest.mark.parametrize("bad", ["", "그냥 문장", "[1,2]", '{"foo": 1}', '{"tool_calls": []}',
-                                 '{"tool_calls": [{"arguments": {}}]}'])
+def test_plain_sentence_is_final_answer():
+    # 도구 미지원 모델이 JSON 없이 문장으로 답한 경우 (exaone 아이 모드에서 tool_format 86%의 원인)
+    assert parse_json_action("안녕! 같이 놀자.") == ("안녕! 같이 놀자.", [])
+    assert parse_json_action("<think>음</think>사과는 apple이야.") == ("사과는 apple이야.", [])
+
+
+@pytest.mark.parametrize("bad", ["", "   ", '{"foo": 1}', '{"tool_calls": []}', '{"tool_calls": [{"arguments": {}}]}',
+                                 '{"final": "끝"', "```json\n{bad}\n```"])
 def test_parse_json_action_errors(bad):
     with pytest.raises(ToolFormatError):
         parse_json_action(bad)
@@ -192,3 +198,13 @@ def test_reasoning_effort_dropped_when_model_rejects_it():
     asyncio.run(c.chat(MSGS))
     assert ["reasoning_effort" in b for b in seen] == [True, False, False]
     assert c.reasoning_dropped
+
+
+def test_json_mode_plain_text_reply():
+    def h(req, body, n):
+        if "tools" in body:
+            return httpx.Response(400, json={"error": {"message": "exaone3.5:7.8b does not support tools"}})
+        return httpx.Response(200, json=completion({"content": "공룡 중에 제일 큰 건 아르젠티노사우루스야."}))
+    c, _ = make_client(h)
+    r = asyncio.run(c.chat(MSGS, TOOLS))
+    assert r.used_json_fallback and r.tool_calls == [] and r.content.startswith("공룡")

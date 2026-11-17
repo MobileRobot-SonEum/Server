@@ -14,7 +14,10 @@ async def _get_child_info(args: dict, ctx: ToolContext) -> ToolResult:
     members = ctx.data.children_in_class(name)
     if members:
         return ToolResult(ok=True, data={"class": name, "children": members})
-    return ToolResult(ok=False, error=f"'{name}' 아이나 반을 찾지 못했습니다")
+    candidates = ctx.data.similar_names(name)
+    hint = f" 비슷한 이름: {', '.join(candidates)}" if candidates else ""
+    return ToolResult(ok=False, error=f"'{name}' 아이나 반을 찾지 못했습니다.{hint}",
+                      data={"candidates": candidates})
 
 
 def register_info_tools(reg: ToolRegistry, data: StaticData) -> None:

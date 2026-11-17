@@ -16,6 +16,7 @@ class AgentResponse(BaseModel):
     steps: int
     model: str
     timed_out: bool = False  # 시간 초과로 failed면 true (교사 앱이 '다시 시도' 버튼에 쓸 수 있음)
+    emergency_redirect: bool = False  # 응급 지시라 비상 버튼·현장 대응을 안내함 (교사 앱이 비상 기능을 띄울 수 있음)
     trace: list[dict[str, Any]]
 
 

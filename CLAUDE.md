@@ -49,13 +49,23 @@
 - **답변 형식(2026-11-13 확정)**: 마크다운 금지. 아이 모드는 temi가 읽으므로 마크다운·이모지·특수기호 금지, 1~2문장(`to_speech_text`). 교사 모드는 일반 텍스트, 목록은 "1) 2)"(`to_plain_text`가 최종 답변 변환). 교사 앱 형식이 정해지면 구조화 필드 추가 예정.
 - **평가**: 문항 `scripts/eval_cases/`(직접 만든 초안 v0.1). 문항당 3회, 성공 횟수 0~3, 비교표에 평균·3회 모두 성공 비율. 생성 설정은 모든 모델 동일(temperature 0.2, max_tokens 512, reasoning_effort none)하고 결과 맨 위에 기록. 아이 모드 안전 위반은 output_guard 전 원답 기준(`ChildReply.raw_reply`, API에는 미노출). 아이 모드 평가는 허용 호스트만(`--allow-external-child`로 예외). T17 "간식 나눠 줘"는 되묻기가 정답(배부는 알레르기가 걸린 일). T21 응급 지시는 도구 없이 교사 앱 비상 기능·현장 대응 안내가 정답.
 - **시간 제한(2026-11-13 확정)**: 교사 모드 호출 25초(재시도 1회), 지시 전체 60초(`AGENT_DEADLINE_S`) 넘으면 failed + "응답이 늦어지고 있어요. 다시 시도해 주세요." + `timed_out=true`. LLM 호출이 재시도 후에도 시간 초과면 같은 처리. 아이 모드 호출 10초, LLM 단계 전체 10초(`CHILD_DEADLINE_S`) 넘으면 기본 답변(`fallback_reason=timeout`). 평가도 같은 값으로 돌리고 시간 초과를 실패로 따로 집계.
+- **평가 후 개선(2026-11-17)**:
+  - 코드로 막기: `get_child_info`·`find_child`가 부르는 말 '이'를 뗌(다솜이→다솜), 못 찾으면 비슷한 후보. `go_to`·`start_game`은 목록 밖 값이면 실행하지 않고 `ToolResult.ask_teacher`로 루프가 즉시 needs_teacher(질문에 후보 포함). start_game 스키마의 enum은 뺌(핸들러가 검사).
+  - 교사 응급 지시(넘어졌어/다쳤어/피 등)는 `config/teacher_emergency.yaml` 규칙으로 LLM 없이 비상 버튼·교사 앱·현장 안내, `emergency_redirect=true`. 지난 일(보고서·기록·부모님께)은 exclusions로 제외.
+  - 교사 답변에 한자·가나가 섞이면 한국어로 한 번 재요청(qwen3가 중국어로 답한 사례).
+  - 아이 출력 검사: '_temii'·'temi' → '테미', 행동 약속(보내 줄게/전해 줄게/가 줄게 등, yaml `action_promise_patterns`), 한자·가나 → 기본 답변.
+  - JSON 대체 경로: JSON이 전혀 없는 문장은 최종 답변으로 인정(exaone 아이 모드 tool_format 86%의 원인).
+  - 평가: 질문으로 되묻기·도구 강제 되묻기를 ask_teacher로 인정, 한국어 아님 실패, 아이 모드에 사실 지어냄(`no_fabrication`)·행동 약속·존댓말 섞임 항목, 모델별 워밍업(측정 제외, 따로 기록), `GIT_COMMIT` 환경변수로 커밋 기록.
+  - 배포: `.env` 주석은 윗줄에(줄 끝 주석 금지), 컨테이너 entrypoint가 /data·/app/results 소유자를 맞추고 uid 10001로 실행, `OLLAMA_KEEP_ALIVE=-1` 기본, 서버 시작 시 자체 서빙 모델 워밍업(`LLM_WARMUP_ON_START`, 외부 API 제외).
 - **배포**: EC2 compose는 Ollama 11434·서버 8000을 호스트에 열지 않고 Caddy(443/80)만 공개. HTTPS 필수(키·아이 문장이 오감). 채택: DuckDNS 무료 도메인 + Elastic IP(고정, DuckDNS에 한 번 등록) + Caddy Let's Encrypt(HTTP-01, 80은 전체 공개·API는 443만). 차선책: sslip.io 또는 공인 IP+Caddy 내부 CA. 공인 IPv4는 사용·유휴 모두 $0.005/h. Cloudflare 중계는 개인정보 원칙상 비권장. 컨테이너 uid 10001.
 
 ## 진행 상황
 - [x] 1단계: 저장소 준비, LLM 클라이언트, 에이전트 루프, 가짜 실행기, `/agent/teacher`, `/health`, 역할별 API 키, 테스트
 - [x] 2단계: 아이 모드(`/agent/child`), SQLite 저장소, 승인 흐름(`/approvals`), `/events` + 해제 시 보고서 자동 초안, `/alerts`, `/reports`, 도구 3개 추가
 - [x] 3단계: `scripts/eval_models.py`(교사 21·아이 22 문항, 문항당 3회), Docker(`docker/compose.dev.yml`, `docker/compose.ec2.yml`), `docs/deploy_ec2.md`, README(Ollama Windows, 작은 모델 시험)
-- [ ] 다음 후보: EC2에서 실제 모델 평가 → 교사/아이 모델 결정, `ControlExecutor`(temi WebSocket 규격 확정 후), 교사 앱 응답 구조화 필드, 이벤트 형식 규칙 엔진 담당과 합의
+- [x] 2026-11-17 EC2(T4) 평가 → **qwen3:14b를 교사·아이 공용 모델로 결정** (교사 67%, 아이 95%; exaone3.5:7.8b는 교사 48%, 아이 14%). 결과는 `../Server_eval/`.
+- [x] 평가 후 개선 11건 반영 (아래 '평가 후 개선'), EC2 재평가는 사용자가 진행
+- [ ] 다음 후보: `ControlExecutor`(temi WebSocket 규격 확정 후), 교사 앱 응답 구조화 필드, 이벤트 형식 규칙 엔진 담당과 합의
 
 ## 구조
 ```
@@ -72,7 +82,8 @@ app/
   storage/           Repository 인터페이스, SQLiteRepository(:memory: 가능)
   api/               auth(역할별 키), routes(agent·health), records(events·approvals·alerts·reports), schemas
   data/              children.json(가상 5명), locations.json, games.json
-config/child_safety.yaml  위험 신호·제외어·약속 표현·고정 답변
+config/child_safety.yaml  위험 신호·제외어·약속·행동 약속 표현·고정 답변
+config/teacher_emergency.yaml  교사 모드 응급 지시 규칙 (LLM 미호출 안내)
 docs/events.md            규칙 엔진 이벤트 형식 (팀 공유용)
 scripts/demo_teacher.py   교사 지시 1개 실행 기록 출력 (--mock-llm)
 scripts/demo_incident.py  감지→해제→보고서·승인 대기→승인→전송 스텁 시나리오

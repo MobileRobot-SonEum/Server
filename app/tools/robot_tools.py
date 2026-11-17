@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.agent.registry import CHILD, TEACHER, Tool, ToolContext, ToolRegistry, ToolResult
-from app.data import StaticData
+from app.data import StaticData, similar
 from app.executors import ExecResult
 
 TEACHER_ONLY = frozenset({TEACHER})
@@ -19,7 +19,18 @@ async def _get_locations(args: dict, ctx: ToolContext) -> ToolResult:
 
 
 async def _go_to(args: dict, ctx: ToolContext) -> ToolResult:
-    return _from_exec(await ctx.executor.go_to(args["location"].strip()))
+    loc = args["location"].strip()
+    if loc not in ctx.data.locations:
+        # 실행기 종류와 상관없이 목록 밖 장소로는 움직이지 않는다
+        sug = similar(loc, ctx.data.locations)
+        hint = f" 혹시 {', '.join(sug)}인가요?" if sug else ""
+        return ToolResult(
+            ok=False,
+            error=f"목록에 없는 장소입니다: {loc}. 이동하지 않았습니다.",
+            data={"locations": ctx.data.locations, "suggestions": sug},
+            ask_teacher=f"'{loc}'은(는) 저장된 장소 목록에 없어요.{hint} 저장된 장소: {', '.join(ctx.data.locations)}. 어디로 갈까요?",
+        )
+    return _from_exec(await ctx.executor.go_to(loc))
 
 
 async def _speak(args: dict, ctx: ToolContext) -> ToolResult:
@@ -27,7 +38,17 @@ async def _speak(args: dict, ctx: ToolContext) -> ToolResult:
 
 
 async def _start_game(args: dict, ctx: ToolContext) -> ToolResult:
-    return _from_exec(await ctx.executor.start_game(args["name"]))
+    name = args["name"].strip()
+    if name not in ctx.data.games:
+        sug = similar(name, ctx.data.games)
+        hint = f" 혹시 {', '.join(sug)}인가요?" if sug else ""
+        return ToolResult(
+            ok=False,
+            error=f"목록에 없는 게임입니다: {name}. 시작하지 않았습니다. 할 수 있는 게임: {', '.join(ctx.data.games)}",
+            data={"games": ctx.data.games, "suggestions": sug},
+            ask_teacher=f"'{name}'은(는) 게임 목록에 없어요.{hint} 할 수 있는 게임: {', '.join(ctx.data.games)}. 어떤 걸 시작할까요?",
+        )
+    return _from_exec(await ctx.executor.start_game(name))
 
 
 async def _start_delivery(args: dict, ctx: ToolContext) -> ToolResult:
@@ -68,7 +89,7 @@ def register_robot_tools(reg: ToolRegistry, data: StaticData) -> None:
     ))
     reg.register(Tool(
         name="go_to",
-        description="temi를 저장된 위치로 이동시킨다. 도착하면 결과를 돌려준다. 위치 이름은 get_locations 결과와 정확히 같아야 한다.",
+        description="temi를 저장된 위치로 이동시킨다. 위치 이름은 저장된 위치 목록과 정확히 같아야 하며, 목록에 없으면 이동하지 않는다.",
         input_schema={
             "type": "object",
             "properties": {"location": {"type": "string", "minLength": 1, "description": "저장된 위치 이름"}},
@@ -108,10 +129,10 @@ def register_robot_tools(reg: ToolRegistry, data: StaticData) -> None:
     ))
     reg.register(Tool(
         name="start_game",
-        description="정해진 게임 중 하나를 시작한다.",
+        description=f"정해진 게임 중 하나를 시작한다. 게임 목록: {', '.join(data.games)}. 목록에 없는 게임은 시작되지 않는다.",
         input_schema={
             "type": "object",
-            "properties": {"name": {"type": "string", "enum": list(data.games), "description": "게임 이름"}},
+            "properties": {"name": {"type": "string", "minLength": 1, "description": "게임 목록의 이름 그대로"}},
             "required": ["name"],
             "additionalProperties": False,
         },

@@ -32,6 +32,7 @@ class SafetyRules:
     fallback_reply: str
     fallback_reply_emotional: str
     promise_patterns: list[re.Pattern] = field(default_factory=list)
+    action_promise_patterns: list[re.Pattern] = field(default_factory=list)
     banned_patterns: list[re.Pattern] = field(default_factory=list)
 
     @classmethod
@@ -52,5 +53,6 @@ class SafetyRules:
             fallback_reply=og["fallback_reply"],
             fallback_reply_emotional=og.get("fallback_reply_emotional", og["fallback_reply"]),
             promise_patterns=[re.compile(p) for p in og.get("promise_patterns") or []],
+            action_promise_patterns=[re.compile(p) for p in og.get("action_promise_patterns") or []],
             banned_patterns=[re.compile(p) for p in og.get("banned_patterns") or []],
         )

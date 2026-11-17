@@ -191,23 +191,34 @@ docker compose -f docker/compose.ec2.yml cp caddy:/data/caddy/pki/authorities/lo
 
 ## 5. 서버 띄우기
 
+교사·아이 공용 모델은 **qwen3:14b**로 정했습니다(2026-11-17 평가). 비교 평가를 다시 할 때만 다른 후보 모델을 받으세요.
+
 ```bash
 git clone <저장소 주소> ~/Server && cd ~/Server
 cp .env.example .env
-nano .env        # 역할별 API 키(TEACHER_APP_API_KEY 등)를 새로 만든 값으로. 교사·아이 LLM 모델명 확인
-mkdir -p results && sudo chown -R 10001:10001 results   # 컨테이너(uid 10001)가 평가 결과를 쓸 수 있게
+nano .env        # 역할별 API 키(TEACHER_APP_API_KEY 등)를 새로 만든 값으로, TEACHER_LLM__MODEL·CHILD_LLM__MODEL=qwen3:14b
 
 export DOMAIN=temi-daycare.duckdns.org             # 4-A에서 만든 DuckDNS 주소 (또는 4-B의 값)
-export OLLAMA_PULL_MODELS=qwen3:14b,qwen3.5:9b,gemma4:12b,exaone3.5:7.8b
+export OLLAMA_PULL_MODELS=qwen3:14b                # 비교 평가 때: qwen3:14b,qwen3.5:9b,gemma4:12b,exaone3.5:7.8b
+export GIT_COMMIT=$(git rev-parse --short HEAD)    # 평가 결과 파일에 코드 커밋을 남김
 docker compose -f docker/compose.ec2.yml up -d --build
 
 docker compose -f docker/compose.ec2.yml logs -f ollama-init   # 모델 다운로드 진행 (처음 한 번, 수십 분)
 docker compose -f docker/compose.ec2.yml ps                    # 모두 healthy / exited(0) 확인
+docker compose -f docker/compose.ec2.yml logs server | grep 워밍업   # "LLM 워밍업 완료: qwen3:14b" 확인
 curl https://$DOMAIN/health                                     # 학교·팀원 IP에서
 ```
 
-- `.env`의 `TEACHER_LLM__MODEL`, `CHILD_LLM__MODEL`은 받은 모델 중에서 고릅니다. 평가 결과를 보고 정하세요.
 - 다시 시작해도 모델(`ollama_models`), DB(`server_data`), 인증서(`caddy_data`)는 볼륨에 남습니다.
+
+### 주의사항
+
+- **`.env` 주석은 줄 끝에 쓰지 말고 윗줄에 쓰세요.** `KEY=값  # 설명`처럼 쓰면 docker compose가 `# 설명`까지 값으로 읽는 경우가 있습니다. `.env.example`은 모두 윗줄 주석으로 바꿔 두었습니다.
+- **`.env`를 고친 뒤에는 `docker compose ... up -d`로 다시 만드세요.** `docker compose restart`는 `.env`를 다시 읽지 않습니다.
+- **results 폴더 권한**: 서버 컨테이너가 시작할 때 `/app/results`(호스트 `~/Server/results`)와 `/data`의 소유자를 컨테이너 사용자(uid 10001)로 맞춥니다. 예전처럼 `sudo chown`을 따로 할 필요는 없습니다. 호스트에서 결과 파일을 지우려면 `sudo rm`을 쓰세요.
+- **모델 상주(`OLLAMA_KEEP_ALIVE=-1`)**: 모델을 GPU에서 내리지 않아 첫 요청이 느려지는 일이 없습니다. 대신 GPU 메모리를 계속 차지하므로, 다른 모델을 시험할 때는 `OLLAMA_KEEP_ALIVE=30m docker compose ... up -d`처럼 바꾸거나 `docker compose ... exec ollama ollama stop <모델>`로 내립니다.
+- **시작 워밍업**: 서버가 시작하면서 Ollama 모델에 짧은 요청을 보내 GPU에 올립니다(최대 5분, 백그라운드). 인스턴스를 켠 직후 1~2분은 첫 요청이 느릴 수 있으니, 시연 전에 로그에서 "워밍업 완료"를 확인하세요.
+- **교사 모드 시간 제한**: 호출 25초, 지시 전체 60초입니다. 워밍업 전에 요청하면 "응답이 늦어지고 있어요"가 나올 수 있습니다.
 
 ## 6. 비용: 켜고 끄기, 예산 알림
 
@@ -275,22 +286,24 @@ aws cloudwatch put-metric-alarm --region ap-northeast-2 --alarm-name temi-idle-s
 
 ## 7. 처음 띄운 뒤 할 일
 
-1. **모델 받기**: `ollama-init` 로그에서 4개 모델이 모두 받아졌는지 확인합니다.
+1. **모델 확인**: `ollama-init` 로그에서 모델이 받아졌는지, GPU에 올라갔는지 확인합니다.
    ```bash
    docker compose -f docker/compose.ec2.yml exec ollama ollama list
-   docker compose -f docker/compose.ec2.yml exec ollama nvidia-smi   # 컨테이너에서 GPU 사용 확인
+   docker compose -f docker/compose.ec2.yml exec ollama ollama ps      # 워밍업 후 qwen3:14b가 GPU 100%로 보여야 함
+   docker compose -f docker/compose.ec2.yml exec ollama nvidia-smi
    ```
-2. **평가 실행**: 문항 43개 × 3회 × 모델 4개를 실행합니다. 모델에 따라 수십 분이 걸립니다.
+2. **평가 실행**: 문항 43개 × 3회입니다. 모델마다 측정 전에 워밍업 요청 1번을 보내고, 그 시간은 결과 파일의 '워밍업' 표에 따로 적습니다(응답 시간 집계에서 제외).
    ```bash
-   docker compose -f docker/compose.ec2.yml exec server python scripts/eval_models.py
-   # 일부만: ... eval_models.py --models qwen3:14b --only T01,C05 --repeats 1
+   docker compose -f docker/compose.ec2.yml exec server python scripts/eval_models.py --models qwen3:14b
+   # 일부만: ... eval_models.py --models qwen3:14b --only T09,T16,C02,C19 --repeats 1
+   # 후보 비교: OLLAMA_PULL_MODELS로 후보를 받은 뒤 --models 생략(.env의 EVAL_MODELS 사용)
    ```
 3. **결과 확인**: `~/Server/results/`에 파일 세 개가 생깁니다.
-   - `eval_models_{날짜_시각}.md`: 모델별 비교표, 문항별 성공 횟수, 틀린 문항
+   - `eval_models_{날짜_시각}.md`: 실행 설정·코드 커밋·워밍업, 모델별 비교표, 문항별 성공 횟수, 틀린 문항
    - `eval_runs_{날짜_시각}.csv`: 전체 실행 기록
    - `eval_child_replies_{날짜_시각}.csv`: 아이 모드 답변을 나란히 모은 표 (팀 5점 채점용)
    ```bash
    scp -i <키>.pem 'ubuntu@<Elastic IP>:~/Server/results/*' ./results/   # 노트북으로 가져오기
    ```
-4. 결과를 보고 `.env`의 `TEACHER_LLM__MODEL`, `CHILD_LLM__MODEL`을 정한 뒤 `docker compose ... up -d`로 다시 시작합니다.
+4. 모델을 바꾸려면 `.env`의 `TEACHER_LLM__MODEL`, `CHILD_LLM__MODEL`을 고친 뒤 `docker compose ... up -d`로 다시 만듭니다.
 5. **다 쓰면 인스턴스를 중지합니다.**

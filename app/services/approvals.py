@@ -47,8 +47,10 @@ class ApprovalService:
         text = (text or a["text"]).strip()
         if not child:
             raise ApprovalError(400, "받는 아이(child)가 정해지지 않았습니다. 승인할 때 child를 지정하세요.")
-        if self.data.find_child(child) is None:
+        found = self.data.find_child(child)
+        if found is None:
             raise ApprovalError(400, f"등록되지 않은 아이입니다: {child}")
+        child = found["name"]  # 다솜이 → 다솜
         if not text:
             raise ApprovalError(400, "메시지 내용이 비어 있습니다")
 
